@@ -2,6 +2,9 @@
 
 Standalone OS shell for CC:Tweaked Advanced Computers.
 
+DockOS renders on an external Tom's Peripherals GPU/Bitmap Monitor setup.
+The computer's own terminal is intentionally kept blank while the OS is running.
+
 ## Install
 
 Run one command on a CC:Tweaked Advanced Computer:
@@ -16,15 +19,24 @@ Then:
 dock
 ```
 
+DockOS continuously scans for:
+
+- Tom's Peripherals GPU.
+- Tom's Peripherals keyboard.
+- Tom's Peripherals bitmap monitor / monitor.
+
+If the hardware is connected after boot, DockOS picks it up automatically.
+
 ## UI
 
 - Mac-style desktop.
+- External-display first: no UI is drawn on the PC terminal.
 - Bottom dock: pinned apps on the left, `|`, open apps on the right.
 - Multiple windows.
 - Drag windows by the title bar.
 - Fullscreen button on every Dock window.
 - Files app with create folder/file, rename, delete, preview, and open.
-- Settings app for peripherals: DirectGPU, monitor, speaker, printer.
+- Settings app for peripherals: Tom GPU/monitor/keyboard status, speaker, printer.
 - Store includes built-in Documents, Paint, and Luma install.
 
 ## Apps

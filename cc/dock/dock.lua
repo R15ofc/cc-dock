@@ -1,10 +1,16 @@
-local VERSION = "0.5.0"
+local VERSION = "0.6.0"
 local LUMA_INSTALLER_URL = "https://raw.githubusercontent.com/R15ofc/cc-luma/main/luma-installer.lua"
 local LUMA_SOURCE_URL = "https://raw.githubusercontent.com/R15ofc/cc-luma/main/cc"
 local DOCS_DIR = "/dock/documents"
 local PAINT_DIR = "/dock/paintings"
 
 local args = { ... }
+
+local DEFAULT_EXTERNAL_WIDTH = 80
+local DEFAULT_EXTERNAL_HEIGHT = 30
+local CELL_WIDTH = 8
+local CELL_HEIGHT = 12
+local PERIPHERAL_SCAN_SECONDS = 1
 
 local THEME = {
   desktop = colors.black,
@@ -70,11 +76,47 @@ local state = {
   settings_message = "",
   toast = "",
   modal = nil,
+  input = nil,
   directgpu = nil,
+  headless = true,
+  frame_ops = {},
+  virtual_width = DEFAULT_EXTERNAL_WIDTH,
+  virtual_height = DEFAULT_EXTERNAL_HEIGHT,
+  peripheral_scan_timer = nil,
+  external = {
+    gpu = nil,
+    gpu_name = nil,
+    keyboard = nil,
+    keyboard_name = nil,
+    monitor = nil,
+    monitor_name = nil,
+    pixel_width = DEFAULT_EXTERNAL_WIDTH * CELL_WIDTH,
+    pixel_height = DEFAULT_EXTERNAL_HEIGHT * CELL_HEIGHT,
+    cell_width = CELL_WIDTH,
+    cell_height = CELL_HEIGHT,
+  },
 }
 
 local hitboxes = {}
 local draw
+
+local function blank_terminal()
+  if not term then
+    return
+  end
+  if term.setTextColor then
+    pcall(term.setTextColor, colors.black)
+  end
+  if term.setBackgroundColor then
+    pcall(term.setBackgroundColor, colors.black)
+  end
+  if term.clear then
+    pcall(term.clear)
+  end
+  if term.setCursorPos then
+    pcall(term.setCursorPos, 1, 1)
+  end
+end
 
 local function can_color()
   return term and term.isColor and term.isColor()
@@ -100,6 +142,9 @@ local function set_background(color)
 end
 
 local function screen_size()
+  if state.headless then
+    return state.virtual_width or DEFAULT_EXTERNAL_WIDTH, state.virtual_height or DEFAULT_EXTERNAL_HEIGHT
+  end
   local screen_width, screen_height = term.getSize()
   return screen_width or 51, screen_height or 19
 end
@@ -120,12 +165,28 @@ local function pad(text, width)
   return text .. string.rep(" ", math.max(0, width - #text))
 end
 
+local function queue_frame_op(op)
+  state.frame_ops = state.frame_ops or {}
+  table.insert(state.frame_ops, op)
+end
+
 local function write_at(left, top, text, foreground, background)
   local screen_width, screen_height = screen_size()
   if left < 1 or top < 1 or left > screen_width or top > screen_height then
     return
   end
   text = trim(text, screen_width - left + 1)
+  if state.headless then
+    queue_frame_op({
+      kind = "text",
+      left = left,
+      top = top,
+      text = tostring(text or ""),
+      foreground = foreground or colors.white,
+      background = background,
+    })
+    return
+  end
   set_foreground(foreground)
   set_background(background)
   term.setCursorPos(left, top)
@@ -152,6 +213,17 @@ local function fill(left, top, width, height, background)
   if width <= 0 or height <= 0 then
     return
   end
+  if state.headless then
+    queue_frame_op({
+      kind = "fill",
+      left = left,
+      top = top,
+      width = width,
+      height = height,
+      background = background or colors.black,
+    })
+    return
+  end
   set_background(background or colors.black)
   for row = top, top + height - 1 do
     term.setCursorPos(left, row)
@@ -161,6 +233,10 @@ local function fill(left, top, width, height, background)
 end
 
 local function clear()
+  if state.headless then
+    state.frame_ops = {}
+    return
+  end
   reset_colors()
   term.clear()
   term.setCursorPos(1, 1)
@@ -311,22 +387,52 @@ local function show_error(message)
   })
 end
 
-local function prompt_text(title, default)
-  local screen_width, screen_height = screen_size()
-  local modal_width = math.min(screen_width - 8, 42)
-  local left = math.floor((screen_width - modal_width) / 2) + 1
-  local top = math.floor(screen_height / 2) - 2
-  fill(left + 1, top + 1, modal_width, 5, colors.black)
-  fill(left, top, modal_width, 5, THEME.surface)
-  fill(left, top, modal_width, 1, THEME.accent)
-  write_at(left + 1, top, trim(title, modal_width - 2), colors.black, THEME.accent)
-  fill(left + 2, top + 2, modal_width - 4, 1, THEME.field)
-  term.setCursorPos(left + 2, top + 2)
-  set_foreground(colors.white)
-  set_background(THEME.field)
-  local value = read(nil, nil, nil, default or "")
-  reset_colors()
-  return value
+local function finish_input(value)
+  local input = state.input
+  state.input = nil
+  if input and input.callback then
+    local ok, err = pcall(input.callback, value)
+    if not ok then
+      show_error(err)
+    end
+  end
+end
+
+local function cancel_input()
+  state.input = nil
+end
+
+local function prompt_text(title, default, callback)
+  state.modal = nil
+  state.input = {
+    title = title or "Input",
+    value = tostring(default or ""),
+    callback = callback,
+  }
+end
+
+local function handle_input_event(event, first)
+  if not state.input then
+    return false
+  end
+  if event == "char" then
+    state.input.value = tostring(state.input.value or "") .. tostring(first or "")
+    return true
+  elseif event == "paste" then
+    state.input.value = tostring(state.input.value or "") .. tostring(first or "")
+    return true
+  elseif event == "key" then
+    if first == keys.enter then
+      finish_input(state.input.value or "")
+    elseif first == keys.backspace then
+      local value = tostring(state.input.value or "")
+      state.input.value = value:sub(1, math.max(0, #value - 1))
+    elseif keys.escape and first == keys.escape then
+      cancel_input()
+    end
+    return true
+  end
+  return false
 end
 
 local function add_open_app(app_id)
@@ -694,21 +800,22 @@ end
 
 local function create_file(kind)
   local default_name = kind == "folder" and "New Folder" or "Untitled.txt"
-  local name = prompt_text(kind == "folder" and "New Folder" or "New File", default_name)
-  if not name or name == "" then
-    return
-  end
-  local new_path = path_join(state.file_path, name)
-  if fs.exists(new_path) then
-    state.toast = "Already exists"
-    return
-  end
-  if kind == "folder" then
-    fs.makeDir(new_path)
-  else
-    write_file(new_path, "")
-  end
-  state.file_selected = new_path
+  prompt_text(kind == "folder" and "New Folder" or "New File", default_name, function(name)
+    if not name or name == "" then
+      return
+    end
+    local new_path = path_join(state.file_path, name)
+    if fs.exists(new_path) then
+      state.toast = "Already exists"
+      return
+    end
+    if kind == "folder" then
+      fs.makeDir(new_path)
+    else
+      write_file(new_path, "")
+    end
+    state.file_selected = new_path
+  end)
 end
 
 local function rename_selected_file()
@@ -716,17 +823,22 @@ local function rename_selected_file()
   if not entry then
     return
   end
-  local name = prompt_text("Rename", entry.name)
-  if not name or name == "" or name == entry.name then
-    return
-  end
-  local target_path = path_join(state.file_path, name)
-  if fs.exists(target_path) then
-    state.toast = "Already exists"
-    return
-  end
-  fs.move(entry.path, target_path)
-  state.file_selected = target_path
+  prompt_text("Rename", entry.name, function(name)
+    if not name or name == "" or name == entry.name then
+      return
+    end
+    if not fs.exists(entry.path) then
+      state.toast = "Missing file"
+      return
+    end
+    local target_path = path_join(state.file_path, name)
+    if fs.exists(target_path) then
+      state.toast = "Already exists"
+      return
+    end
+    fs.move(entry.path, target_path)
+    state.file_selected = target_path
+  end)
 end
 
 local function delete_selected_file()
@@ -813,34 +925,38 @@ local function docs_list()
 end
 
 local function new_document()
-  local name = prompt_text("New Document", "Document.txt")
-  if not name or name == "" then
-    return
-  end
-  if not name:match("%.txt$") then
-    name = name .. ".txt"
-  end
-  local doc_path = path_join(DOCS_DIR, name)
-  if fs.exists(doc_path) then
-    state.toast = "Already exists"
-    return
-  end
-  local body = prompt_text("Text", "")
-  write_file(doc_path, body or "")
-  state.docs_selected = doc_path
-  state.docs_preview = body or ""
+  prompt_text("New Document", "Document.txt", function(name)
+    if not name or name == "" then
+      return
+    end
+    if not name:match("%.txt$") then
+      name = name .. ".txt"
+    end
+    local doc_path = path_join(DOCS_DIR, name)
+    if fs.exists(doc_path) then
+      state.toast = "Already exists"
+      return
+    end
+    prompt_text("Text", "", function(body)
+      write_file(doc_path, body or "")
+      state.docs_selected = doc_path
+      state.docs_preview = body or ""
+    end)
+  end)
 end
 
 local function edit_document()
   if not state.docs_selected then
     return
   end
+  local doc_path = state.docs_selected
   local current = read_file(state.docs_selected) or ""
-  local body = prompt_text("Edit", current)
-  if body then
-    write_file(state.docs_selected, body)
-    state.docs_preview = body
-  end
+  prompt_text("Edit", current, function(body)
+    if body then
+      write_file(doc_path, body)
+      state.docs_preview = body
+    end
+  end)
 end
 
 local function print_document()
@@ -941,23 +1057,24 @@ end
 
 local function save_painting()
   init_paint()
-  local name = prompt_text("Save Painting", "Painting.txt")
-  if not name or name == "" then
-    return
-  end
-  if not name:match("%.txt$") then
-    name = name .. ".txt"
-  end
-  local lines = {}
-  for row = 1, 12 do
-    local parts = {}
-    for col = 1, 24 do
-      table.insert(parts, tostring(paint_cell(col, row)))
+  prompt_text("Save Painting", "Painting.txt", function(name)
+    if not name or name == "" then
+      return
     end
-    table.insert(lines, table.concat(parts, ","))
-  end
-  write_file(path_join(PAINT_DIR, name), table.concat(lines, "\n"))
-  state.toast = "Saved"
+    if not name:match("%.txt$") then
+      name = name .. ".txt"
+    end
+    local lines = {}
+    for row = 1, 12 do
+      local parts = {}
+      for col = 1, 24 do
+        table.insert(parts, tostring(paint_cell(col, row)))
+      end
+      table.insert(lines, table.concat(parts, ","))
+    end
+    write_file(path_join(PAINT_DIR, name), table.concat(lines, "\n"))
+    state.toast = "Saved"
+  end)
 end
 
 local function draw_paint(window_state)
@@ -1098,8 +1215,8 @@ end
 local function draw_settings(window_state)
   local left, top, width, height = content_rect(window_state)
   local cursor_left = left + 1
-  cursor_left = cursor_left + draw_button("settings_gpu", cursor_left, top, "DirectGPU", nil, THEME.button) + 1
-  cursor_left = cursor_left + draw_button("settings_monitor", cursor_left, top, "Monitor", nil, colors.gray) + 1
+  cursor_left = cursor_left + draw_button("settings_gpu", cursor_left, top, "Rescan", nil, THEME.button) + 1
+  cursor_left = cursor_left + draw_button("settings_monitor", cursor_left, top, "Display", nil, colors.gray) + 1
   cursor_left = cursor_left + draw_button("settings_speaker", cursor_left, top, "Speaker", nil, colors.gray) + 1
   draw_button("settings_printer", cursor_left, top, "Printer", nil, colors.gray)
   write_at(left + 1, top + 2, trim(state.settings_message, width - 2), colors.cyan, THEME.window)
@@ -1173,6 +1290,34 @@ local function draw_modal()
   end
 end
 
+local function draw_input()
+  if not state.input then
+    return
+  end
+  local screen_width, screen_height = screen_size()
+  local modal_width = math.min(screen_width - 8, 46)
+  local modal_height = 7
+  local left = math.floor((screen_width - modal_width) / 2) + 1
+  local top = math.floor((screen_height - modal_height) / 2) + 1
+  local field_width = modal_width - 4
+  local value = tostring(state.input.value or "")
+  local visible_value = value
+  if #visible_value > field_width - 1 then
+    visible_value = visible_value:sub(#visible_value - field_width + 2)
+  end
+
+  fill(left + 1, top + 1, modal_width, modal_height, colors.black)
+  fill(left, top, modal_width, modal_height, THEME.surface)
+  fill(left, top, modal_width, 1, THEME.accent)
+  write_at(left + 1, top, trim(state.input.title, modal_width - 2), colors.black, THEME.accent)
+  fill(left + 2, top + 2, field_width, 1, THEME.field)
+  write_at(left + 2, top + 2, pad(visible_value .. "_", field_width), colors.white, THEME.field)
+  local cursor_left = left + 2
+  local button_top = top + modal_height - 2
+  cursor_left = cursor_left + draw_button("input_ok", cursor_left, button_top, "OK", nil, THEME.button) + 2
+  draw_button("input_cancel", cursor_left, button_top, "Cancel", nil, colors.gray)
+end
+
 local function color_rgb(color)
   local map = {
     [colors.white] = { 245, 245, 245 },
@@ -1207,6 +1352,164 @@ local function gpu_text(gpu, display, text, left, top, color, size, style)
   if gpu.drawText then
     gpu.drawText(display, tostring(text or ""), left, top, rgb[1], rgb[2], rgb[3], "Arial", size or 14, style or "bold")
   end
+end
+
+local function color_argb(color)
+  local rgb = color_rgb(color)
+  local value = 4278190080 + rgb[1] * 65536 + rgb[2] * 256 + rgb[3]
+  if value > 2147483647 then
+    return value - 4294967296
+  end
+  return value
+end
+
+local function peripheral_type_text(name)
+  if not peripheral or not peripheral.getType then
+    return ""
+  end
+  local ok, kind = pcall(peripheral.getType, name)
+  if not ok or not kind then
+    return ""
+  end
+  if type(kind) == "table" then
+    return table.concat(kind, ",")
+  end
+  return tostring(kind)
+end
+
+local function find_peripheral(predicate)
+  if not peripheral or not peripheral.getNames or not peripheral.wrap then
+    return nil, nil
+  end
+  for _, name in ipairs(peripheral.getNames()) do
+    local device = peripheral.wrap(name)
+    local kind = peripheral_type_text(name):lower()
+    if device and predicate(name, device, kind) then
+      return name, device
+    end
+  end
+  return nil, nil
+end
+
+local function is_tom_gpu(_, device, kind)
+  if type(device.refreshSize) == "function" and type(device.sync) == "function" then
+    return type(device.filledRectangle) == "function" or type(device.drawText) == "function" or type(device.fill) == "function"
+  end
+  return kind:find("gpu", 1, true) and type(device.filledRectangle) == "function"
+end
+
+local function is_tom_keyboard(_, device, kind)
+  return type(device.setFireNativeEvents) == "function" or kind:find("keyboard", 1, true) ~= nil
+end
+
+local function is_external_monitor(_, device, kind)
+  return kind:find("monitor", 1, true) ~= nil and type(device.setFireNativeEvents) ~= "function"
+end
+
+local function refresh_external_size()
+  local gpu = state.external.gpu
+  local pixel_width = DEFAULT_EXTERNAL_WIDTH * CELL_WIDTH
+  local pixel_height = DEFAULT_EXTERNAL_HEIGHT * CELL_HEIGHT
+  if gpu then
+    if gpu.refreshSize then
+      pcall(gpu.refreshSize)
+    end
+    if gpu.getSize then
+      local ok, width, height = pcall(function()
+        return gpu.getSize()
+      end)
+      if ok and type(width) == "number" and type(height) == "number" and width > 0 and height > 0 then
+        pixel_width = width
+        pixel_height = height
+      end
+    end
+  end
+
+  state.external.pixel_width = math.max(CELL_WIDTH * 40, math.floor(pixel_width))
+  state.external.pixel_height = math.max(CELL_HEIGHT * 18, math.floor(pixel_height))
+  state.virtual_width = math.max(40, math.floor(state.external.pixel_width / state.external.cell_width))
+  state.virtual_height = math.max(18, math.floor(state.external.pixel_height / state.external.cell_height))
+end
+
+local function scan_external_peripherals()
+  local gpu_name, gpu = find_peripheral(is_tom_gpu)
+  state.external.gpu_name = gpu_name
+  state.external.gpu = gpu
+
+  local keyboard_name, keyboard = find_peripheral(is_tom_keyboard)
+  state.external.keyboard_name = keyboard_name
+  state.external.keyboard = keyboard
+  if keyboard and keyboard.setFireNativeEvents then
+    pcall(keyboard.setFireNativeEvents, true)
+  end
+
+  local monitor_name, monitor = find_peripheral(is_external_monitor)
+  state.external.monitor_name = monitor_name
+  state.external.monitor = monitor
+
+  refresh_external_size()
+
+  local parts = {}
+  table.insert(parts, gpu_name and ("GPU " .. gpu_name) or "GPU waiting")
+  table.insert(parts, keyboard_name and ("Keyboard " .. keyboard_name) or "Keyboard waiting")
+  table.insert(parts, monitor_name and ("Monitor " .. monitor_name) or "Monitor waiting")
+  state.settings_message = table.concat(parts, " | ")
+end
+
+local function start_peripheral_scan_timer()
+  if os and os.startTimer then
+    state.peripheral_scan_timer = os.startTimer(PERIPHERAL_SCAN_SECONDS)
+  end
+end
+
+local function tom_fill_rect(gpu, left, top, width, height, color)
+  if width <= 0 or height <= 0 then
+    return
+  end
+  if gpu.filledRectangle then
+    gpu.filledRectangle(left, top, width, height, color_argb(color))
+  end
+end
+
+local function tom_draw_text(gpu, left, top, text, foreground, background)
+  if not gpu.drawText then
+    return
+  end
+  local bg = background and color_argb(background) or 0
+  gpu.drawText(left, top, tostring(text or ""), color_argb(foreground or colors.white), bg, 10, 0)
+end
+
+local function render_tom_gpu()
+  local gpu = state.external.gpu
+  if not state.headless or not gpu then
+    return
+  end
+  pcall(function()
+    if gpu.fill then
+      gpu.fill(color_argb(THEME.desktop))
+    elseif gpu.filledRectangle then
+      gpu.filledRectangle(0, 0, state.external.pixel_width, state.external.pixel_height, color_argb(THEME.desktop))
+    end
+    for _, op in ipairs(state.frame_ops or {}) do
+      local pixel_left = (op.left - 1) * state.external.cell_width
+      local pixel_top = (op.top - 1) * state.external.cell_height
+      if op.kind == "fill" then
+        tom_fill_rect(
+          gpu,
+          pixel_left,
+          pixel_top,
+          op.width * state.external.cell_width,
+          op.height * state.external.cell_height,
+          op.background
+        )
+      elseif op.kind == "text" then
+        tom_draw_text(gpu, pixel_left, pixel_top, op.text, op.foreground, op.background)
+      end
+    end
+    if gpu.sync then
+      gpu.sync()
+    end
+  end)
 end
 
 local function draw_directgpu()
@@ -1281,12 +1584,21 @@ function draw()
   draw_dock()
   draw_toast()
   draw_modal()
-  draw_directgpu()
+  draw_input()
+  if state.headless then
+    render_tom_gpu()
+  else
+    draw_directgpu()
+  end
 end
 
 local function handle_action(action, payload, mouse_left, mouse_top)
   if action == "modal_close" then
     state.modal = nil
+  elseif action == "input_ok" then
+    finish_input(state.input and state.input.value or "")
+  elseif action == "input_cancel" then
+    cancel_input()
   elseif action == "desktop_app" or action == "dock_pinned" then
     open_app(payload)
   elseif action == "dock_open" then
@@ -1378,9 +1690,9 @@ local function handle_action(action, payload, mouse_left, mouse_top)
   elseif action == "paint_save" then
     save_painting()
   elseif action == "settings_gpu" then
-    directgpu_connect()
+    scan_external_peripherals()
   elseif action == "settings_monitor" then
-    monitor_connect()
+    scan_external_peripherals()
   elseif action == "settings_speaker" then
     speaker_test()
   elseif action == "settings_printer" then
@@ -1388,13 +1700,69 @@ local function handle_action(action, payload, mouse_left, mouse_top)
   end
 end
 
+local function pixel_to_cell(pixel_left, pixel_top)
+  local left = math.floor((tonumber(pixel_left) or 0) / state.external.cell_width) + 1
+  local top = math.floor((tonumber(pixel_top) or 0) / state.external.cell_height) + 1
+  left = math.max(1, math.min(state.virtual_width, left))
+  top = math.max(1, math.min(state.virtual_height, top))
+  return left, top
+end
+
+local function monitor_event_pixels(first, second, third, fourth)
+  if type(first) == "number" and type(second) == "number" then
+    return first, second, third
+  end
+  if type(second) == "number" and type(third) == "number" then
+    return second, third, fourth
+  end
+  return 0, 0, third
+end
+
+local function normalize_external_event(event, first, second, third, fourth)
+  if event == "tm_keyboard_key" then
+    return "key", second, third
+  elseif event == "tm_keyboard_key_up" then
+    return "key_up", second
+  elseif event == "tm_keyboard_char" then
+    return "char", second
+  elseif event == "tm_keyboard_paste" then
+    return "paste", second
+  elseif event == "tm_monitor_mouse_click" then
+    local pixel_left, pixel_top, button = monitor_event_pixels(first, second, third, fourth)
+    local left, top = pixel_to_cell(pixel_left, pixel_top)
+    return "mouse_click", button or 1, left, top
+  elseif event == "tm_monitor_mouse_up" then
+    local pixel_left, pixel_top, button = monitor_event_pixels(first, second, third, fourth)
+    local left, top = pixel_to_cell(pixel_left, pixel_top)
+    return "mouse_up", button or 1, left, top
+  elseif event == "tm_monitor_mouse_scroll" then
+    local pixel_left, pixel_top, direction = monitor_event_pixels(first, second, third, fourth)
+    local left, top = pixel_to_cell(pixel_left, pixel_top)
+    return "mouse_scroll", direction or 0, left, top
+  elseif event == "tm_monitor_mouse_drag" then
+    local pixel_left, pixel_top = monitor_event_pixels(first, second, third, fourth)
+    local left, top = pixel_to_cell(pixel_left, pixel_top)
+    return "mouse_drag", 1, left, top
+  elseif event == "tm_monitor_touch" then
+    local pixel_left, pixel_top = monitor_event_pixels(first, second, third, fourth)
+    local left, top = pixel_to_cell(pixel_left, pixel_top)
+    return "mouse_click", 1, left, top
+  end
+  return event, first, second, third
+end
+
 local function run_loop()
+  state.headless = true
+  blank_terminal()
+  scan_external_peripherals()
+  start_peripheral_scan_timer()
   while true do
     draw()
-    local event, first, second, third = os.pullEvent()
+    local event, first, second, third, fourth = os.pullEvent()
+    event, first, second, third = normalize_external_event(event, first, second, third, fourth)
     if event == "mouse_click" then
       local hitbox = hit_at(second, third)
-      if hitbox then
+      if hitbox and (not state.input or hitbox.id == "input_ok" or hitbox.id == "input_cancel") then
         handle_action(hitbox.id, hitbox.payload, second, third)
       end
     elseif event == "mouse_drag" and state.dragging_window then
@@ -1419,9 +1787,16 @@ local function run_loop()
       if active_window and active_window.app == "finder" then
         state.file_scroll = math.max(0, state.file_scroll + first)
       end
+    elseif event == "timer" and first == state.peripheral_scan_timer then
+      scan_external_peripherals()
+      start_peripheral_scan_timer()
+    elseif event == "peripheral" or event == "peripheral_detach" then
+      scan_external_peripherals()
     elseif event == "key" then
-      if first == keys.q then
-        clear()
+      if handle_input_event(event, first) then
+        -- input consumed
+      elseif first == keys.q then
+        blank_terminal()
         return
       elseif first == keys.backspace then
         state.modal = nil
@@ -1436,6 +1811,8 @@ local function run_loop()
           delete_selected_file()
         end
       end
+    elseif event == "char" or event == "paste" then
+      handle_input_event(event, first)
     end
   end
 end
