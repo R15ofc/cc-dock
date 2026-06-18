@@ -1,4 +1,4 @@
-local VERSION = "0.6.0"
+local VERSION = "0.6.1"
 local LUMA_INSTALLER_URL = "https://raw.githubusercontent.com/R15ofc/cc-luma/main/luma-installer.lua"
 local LUMA_SOURCE_URL = "https://raw.githubusercontent.com/R15ofc/cc-luma/main/cc"
 local DOCS_DIR = "/dock/documents"
@@ -86,6 +86,8 @@ local state = {
   external = {
     gpu = nil,
     gpu_name = nil,
+    gpu_ready = false,
+    gpu_error = nil,
     keyboard = nil,
     keyboard_name = nil,
     monitor = nil,
@@ -94,6 +96,7 @@ local state = {
     pixel_height = DEFAULT_EXTERNAL_HEIGHT * CELL_HEIGHT,
     cell_width = CELL_WIDTH,
     cell_height = CELL_HEIGHT,
+    initialized_gpu = nil,
   },
 }
 
@@ -1354,13 +1357,9 @@ local function gpu_text(gpu, display, text, left, top, color, size, style)
   end
 end
 
-local function color_argb(color)
+local function color_value(color)
   local rgb = color_rgb(color)
-  local value = 4278190080 + rgb[1] * 65536 + rgb[2] * 256 + rgb[3]
-  if value > 2147483647 then
-    return value - 4294967296
-  end
-  return value
+  return rgb[1] * 65536 + rgb[2] * 256 + rgb[3]
 end
 
 local function peripheral_type_text(name)
@@ -1414,6 +1413,10 @@ local function refresh_external_size()
     if gpu.refreshSize then
       pcall(gpu.refreshSize)
     end
+    if gpu.setSize then
+      pcall(gpu.setSize, 64)
+    end
+    sleep(0)
     if gpu.getSize then
       local ok, width, height = pcall(function()
         return gpu.getSize()
@@ -1429,6 +1432,38 @@ local function refresh_external_size()
   state.external.pixel_height = math.max(CELL_HEIGHT * 18, math.floor(pixel_height))
   state.virtual_width = math.max(40, math.floor(state.external.pixel_width / state.external.cell_width))
   state.virtual_height = math.max(18, math.floor(state.external.pixel_height / state.external.cell_height))
+end
+
+local function initialize_tom_gpu(force)
+  local gpu = state.external.gpu
+  if not gpu then
+    state.external.gpu_ready = false
+    state.external.gpu_error = "GPU not found"
+    return false
+  end
+  if not force and state.external.initialized_gpu == state.external.gpu_name and state.external.gpu_ready then
+    return true
+  end
+  local ok, err = pcall(function()
+    if gpu.refreshSize then
+      gpu.refreshSize()
+    end
+    if gpu.setSize then
+      gpu.setSize(64)
+    end
+    sleep(0.25)
+    if gpu.fill then
+      gpu.fill(0)
+    end
+    if gpu.sync then
+      gpu.sync()
+    end
+  end)
+  state.external.initialized_gpu = state.external.gpu_name
+  state.external.gpu_ready = ok
+  state.external.gpu_error = ok and nil or tostring(err)
+  refresh_external_size()
+  return ok
 end
 
 local function scan_external_peripherals()
@@ -1448,9 +1483,10 @@ local function scan_external_peripherals()
   state.external.monitor = monitor
 
   refresh_external_size()
+  initialize_tom_gpu(false)
 
   local parts = {}
-  table.insert(parts, gpu_name and ("GPU " .. gpu_name) or "GPU waiting")
+  table.insert(parts, gpu_name and ("GPU " .. gpu_name .. (state.external.gpu_ready and " ready" or " error")) or "GPU waiting")
   table.insert(parts, keyboard_name and ("Keyboard " .. keyboard_name) or "Keyboard waiting")
   table.insert(parts, monitor_name and ("Monitor " .. monitor_name) or "Monitor waiting")
   state.settings_message = table.concat(parts, " | ")
@@ -1467,7 +1503,7 @@ local function tom_fill_rect(gpu, left, top, width, height, color)
     return
   end
   if gpu.filledRectangle then
-    gpu.filledRectangle(left, top, width, height, color_argb(color))
+    gpu.filledRectangle(left, top, width, height, color_value(color))
   end
 end
 
@@ -1475,8 +1511,8 @@ local function tom_draw_text(gpu, left, top, text, foreground, background)
   if not gpu.drawText then
     return
   end
-  local bg = background and color_argb(background) or 0
-  gpu.drawText(left, top, tostring(text or ""), color_argb(foreground or colors.white), bg, 10, 0)
+  local bg = background and color_value(background) or 0
+  gpu.drawText(left, top, tostring(text or ""), color_value(foreground or colors.white), bg, 10, 0)
 end
 
 local function render_tom_gpu()
@@ -1485,10 +1521,11 @@ local function render_tom_gpu()
     return
   end
   pcall(function()
+    initialize_tom_gpu(false)
     if gpu.fill then
-      gpu.fill(color_argb(THEME.desktop))
+      gpu.fill(color_value(THEME.desktop))
     elseif gpu.filledRectangle then
-      gpu.filledRectangle(0, 0, state.external.pixel_width, state.external.pixel_height, color_argb(THEME.desktop))
+      gpu.filledRectangle(0, 0, state.external.pixel_width, state.external.pixel_height, color_value(THEME.desktop))
     end
     for _, op in ipairs(state.frame_ops or {}) do
       local pixel_left = (op.left - 1) * state.external.cell_width
@@ -1835,6 +1872,87 @@ local function install_from_store(app_id)
   end
 end
 
+local function method_summary(name)
+  if not peripheral or not peripheral.getMethods then
+    return ""
+  end
+  local ok, methods = pcall(peripheral.getMethods, name)
+  if not ok or type(methods) ~= "table" then
+    return ""
+  end
+  table.sort(methods)
+  return table.concat(methods, ",")
+end
+
+local function run_doctor()
+  state.headless = false
+  reset_colors()
+  print("DockOS " .. VERSION .. " doctor")
+  print("")
+  if not peripheral or not peripheral.getNames then
+    print("ERR peripheral API missing")
+    return
+  end
+
+  local names = peripheral.getNames()
+  table.sort(names)
+  if #names == 0 then
+    print("ERR no peripherals attached")
+  else
+    print("Peripherals:")
+    for _, name in ipairs(names) do
+      print("- " .. name .. " type=" .. peripheral_type_text(name))
+      local methods = method_summary(name)
+      if methods ~= "" then
+        print("  methods=" .. trim(methods, 90))
+      end
+    end
+  end
+
+  print("")
+  scan_external_peripherals()
+  print("GPU: " .. tostring(state.external.gpu_name or "not found"))
+  print("Keyboard: " .. tostring(state.external.keyboard_name or "not found"))
+  print("Monitor: " .. tostring(state.external.monitor_name or "not found"))
+  print("Size: " .. tostring(state.external.pixel_width) .. "x" .. tostring(state.external.pixel_height))
+  if state.external.gpu_error then
+    print("GPU error: " .. tostring(state.external.gpu_error))
+  end
+
+  if not state.external.gpu then
+    print("")
+    print("ERR Tom GPU not detected. Expected peripheral like tm_gpu_0.")
+    return
+  end
+
+  local gpu = state.external.gpu
+  local ok, err = pcall(function()
+    initialize_tom_gpu(true)
+    if gpu.fill then
+      gpu.fill(0)
+    end
+    if gpu.filledRectangle then
+      gpu.filledRectangle(0, 0, 180, 80, 0x1C1C1E)
+      gpu.filledRectangle(8, 8, 164, 64, 0x0A84FF)
+      gpu.filledRectangle(14, 14, 152, 52, 0x2C2C2E)
+    end
+    if gpu.drawText then
+      gpu.drawText(24, 26, "DockOS GPU OK", 0xFFFFFF, 0x2C2C2E, 12, 0)
+      gpu.drawText(24, 44, tostring(state.external.gpu_name), 0x5AC8FA, 0x2C2C2E, 10, 0)
+    end
+    if gpu.sync then
+      gpu.sync()
+    end
+  end)
+  if ok then
+    print("")
+    print("OK test pattern sent to Tom GPU")
+  else
+    print("")
+    print("ERR GPU test failed: " .. tostring(err))
+  end
+end
+
 local command = args[1] or "home"
 
 if command == "home" or command == "ui" then
@@ -1849,6 +1967,8 @@ elseif command == "files" then
   run_loop()
 elseif command == "apps" then
   print_apps()
+elseif command == "doctor" or command == "gpu-test" then
+  run_doctor()
 elseif command == "version" then
   print(VERSION)
 else

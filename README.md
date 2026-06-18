@@ -57,7 +57,11 @@ dock files
 dock store
 dock store install luma
 dock apps
+dock doctor
 ```
+
+`dock doctor` keeps output on the computer terminal and prints attached peripherals,
+then sends a visible test pattern to the Tom GPU.
 
 ## CC Server PC
 
