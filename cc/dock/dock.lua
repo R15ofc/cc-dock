@@ -1,4 +1,4 @@
-local VERSION = "0.6.2"
+local VERSION = "0.6.3"
 local LUMA_INSTALLER_URL = "https://raw.githubusercontent.com/R15ofc/cc-luma/main/luma-installer.lua"
 local LUMA_SOURCE_URL = "https://raw.githubusercontent.com/R15ofc/cc-luma/main/cc"
 local DOCS_DIR = "/dock/documents"
@@ -1525,8 +1525,13 @@ local function tom_draw_text(gpu, left, top, text, foreground, background)
   end
   left = math.max(1, math.min(state.external.pixel_width - 1, math.floor(tonumber(left) or 1)))
   top = math.max(1, math.min(state.external.pixel_height - 1, math.floor(tonumber(top) or 1)))
-  local bg = background and color_value(background) or 0
-  gpu.drawText(left, top, tostring(text or ""), color_value(foreground or colors.white), bg, 10, 0)
+  local bg = background and color_value(background) or -1
+  local ok = pcall(gpu.drawText, left, top, tostring(text or ""), color_value(foreground or colors.white), bg, 1, 0)
+  if not ok and background then
+    pcall(gpu.drawText, left, top, tostring(text or ""), color_value(foreground or colors.white), -1, 1)
+  elseif not ok then
+    pcall(gpu.drawText, left, top, tostring(text or ""))
+  end
 end
 
 local function render_tom_gpu()
@@ -1958,8 +1963,8 @@ local function run_doctor()
       gpu.filledRectangle(15, 15, 152, 52, 0x2C2C2E)
     end
     if gpu.drawText then
-      gpu.drawText(25, 27, "DockOS GPU OK", 0xFFFFFF, 0x2C2C2E, 12, 0)
-      gpu.drawText(25, 45, tostring(state.external.gpu_name), 0x5AC8FA, 0x2C2C2E, 10, 0)
+      tom_draw_text(gpu, 25, 27, "DockOS GPU OK", colors.white, nil)
+      tom_draw_text(gpu, 25, 45, tostring(state.external.gpu_name), colors.cyan, nil)
     end
     if gpu.sync then
       gpu.sync()
