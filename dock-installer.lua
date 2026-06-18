@@ -3,8 +3,11 @@ local TEMP_DIR = "/dock/.installer"
 
 local FILES = {
   { source = "dock/dock.lua", target = "/dock/dock.lua" },
+  { source = "dock/server.lua", target = "/dock/server.lua" },
   { source = "bin/dock.lua", target = "/bin/dock.lua" },
+  { source = "bin/dock-server.lua", target = "/bin/dock-server.lua" },
   { source = "startup/dock.lua", target = "/startup/dock.lua" },
+  { source = "startup/dock-server.lua", target = "/startup/dock-server.lua" },
 }
 
 local START_MARK = "-- DockOS startup hook: begin"
@@ -183,4 +186,3 @@ append_shell_path("/bin")
 print("OK DockOS installed")
 print("Run: dock")
 print("Install Luma from app store: dock store install luma")
-
