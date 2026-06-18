@@ -1,4 +1,4 @@
-local VERSION = "0.3.0"
+local VERSION = "0.4.0"
 local LUMA_INSTALLER_URL = "https://raw.githubusercontent.com/R15ofc/cc-luma/main/luma-installer.lua"
 local LUMA_SOURCE_URL = "https://raw.githubusercontent.com/R15ofc/cc-luma/main/cc"
 local STORE_PROTOCOL = "dock.store"
@@ -8,28 +8,28 @@ local args = { ... }
 
 local THEME = {
   desktop = colors.black,
-  sidebar = colors.gray,
-  sidebar_active = colors.cyan,
-  topbar = colors.gray,
-  panel = colors.gray,
-  panel_dark = colors.black,
-  panel_light = colors.lightGray,
+  glass = colors.gray,
+  glass_dark = colors.black,
+  title = colors.lightGray,
   text = colors.white,
   muted = colors.lightGray,
   accent = colors.cyan,
-  success = colors.lime,
-  warning = colors.orange,
-  danger = colors.red,
   button = colors.blue,
-  button_alt = colors.gray,
+  danger = colors.red,
+  warning = colors.orange,
+  success = colors.lime,
+  selected = colors.blue,
 }
 
 local APPS = {
-  { id = "store", name = "Store", icon = "ST", color = colors.cyan },
-  { id = "luma", name = "Luma", icon = "LM", color = colors.purple },
-  { id = "files", name = "Files", icon = "FS", color = colors.blue },
-  { id = "shell", name = "Shell", icon = ">_", color = colors.green },
+  finder = { id = "finder", name = "Files", icon = "FS", color = colors.blue },
+  store = { id = "store", name = "Store", icon = "ST", color = colors.cyan },
+  luma = { id = "luma", name = "Luma", icon = "LM", color = colors.purple },
+  terminal = { id = "terminal", name = "Terminal", icon = ">_", color = colors.green },
+  system = { id = "system", name = "System", icon = "SY", color = colors.orange },
 }
+
+local PINNED = { "finder", "store", "luma", "terminal", "system" }
 
 local BUILTIN_CATALOG = {
   {
@@ -63,15 +63,19 @@ end
 
 local rig_app = load_rig_devapi("app")
 local rig_store = load_rig_devapi("store")
-local rig_ui = load_rig_devapi("ui")
 
 local state = {
-  view = "home",
+  view = "desktop",
+  open = {},
+  open_order = {},
+  dragging_open = nil,
   catalog = nil,
   catalog_source = "offline",
-  selected = 1,
   store_scroll = 0,
+  file_path = "/",
   file_scroll = 0,
+  file_selected = nil,
+  preview = nil,
   toast = "",
   modal = nil,
 }
@@ -84,13 +88,13 @@ local function can_color()
 end
 
 local function set_fg(color)
-  if can_color() then
+  if can_color() and color then
     term.setTextColor(color)
   end
 end
 
 local function set_bg(color)
-  if can_color() then
+  if can_color() and color then
     term.setBackgroundColor(color)
   end
 end
@@ -107,18 +111,7 @@ local function size()
   return width or 51, height or 19
 end
 
-local function fit(text, width)
-  text = tostring(text or "")
-  if #text <= width then
-    return text .. string.rep(" ", math.max(0, width - #text))
-  end
-  if width <= 1 then
-    return text:sub(1, width)
-  end
-  return text:sub(1, width - 1) .. "."
-end
-
-local function trim_fit(text, width)
+local function trim(text, width)
   text = tostring(text or "")
   if #text <= width then
     return text
@@ -129,13 +122,14 @@ local function trim_fit(text, width)
   return text:sub(1, width - 1) .. "."
 end
 
+local function pad(text, width)
+  text = trim(text, width)
+  return text .. string.rep(" ", math.max(0, width - #text))
+end
+
 local function write_at(x, y, text, fg, bg)
-  if fg then
-    set_fg(fg)
-  end
-  if bg then
-    set_bg(bg)
-  end
+  set_fg(fg)
+  set_bg(bg)
   term.setCursorPos(x, y)
   term.write(tostring(text or ""))
   reset_colors()
@@ -204,6 +198,16 @@ local function write_file(path, data)
   return true
 end
 
+local function read_file(path)
+  local handle = fs.open(path, "r")
+  if not handle then
+    return nil
+  end
+  local data = handle.readAll()
+  handle.close()
+  return data or ""
+end
+
 local function download(url)
   if rig_app and rig_app.download then
     return rig_app.download(url, { ["Accept"] = "text/plain" })
@@ -240,6 +244,63 @@ local function run_hidden(callback)
     return ok, result
   end
   return pcall(callback)
+end
+
+local function path_join(base, name)
+  base = tostring(base or "/")
+  name = tostring(name or "")
+  if base == "/" then
+    return "/" .. name
+  end
+  return base:gsub("/+$", "") .. "/" .. name
+end
+
+local function parent_path(path)
+  path = tostring(path or "/")
+  if path == "/" then
+    return "/"
+  end
+  local parent = fs.getDir(path)
+  if parent == "" then
+    return "/"
+  end
+  return "/" .. parent:gsub("^/+", "")
+end
+
+local function basename(path)
+  path = tostring(path or "")
+  return path:match("[^/]+$") or path
+end
+
+local function add_open(app_id)
+  if not state.open[app_id] then
+    state.open[app_id] = true
+    table.insert(state.open_order, app_id)
+  end
+end
+
+local function move_open(app_id, target_id)
+  if not app_id or app_id == target_id then
+    return
+  end
+  local next_order = {}
+  for _, id in ipairs(state.open_order) do
+    if id ~= app_id then
+      table.insert(next_order, id)
+    end
+  end
+  local inserted = false
+  for index, id in ipairs(next_order) do
+    if id == target_id then
+      table.insert(next_order, index, app_id)
+      inserted = true
+      break
+    end
+  end
+  if not inserted then
+    table.insert(next_order, app_id)
+  end
+  state.open_order = next_order
 end
 
 local function is_modem(name)
@@ -297,49 +358,32 @@ local function app_installed(app)
   return fs.exists("/dock/apps/" .. tostring(app.id) .. ".lua")
 end
 
-local function run_luma()
-  if not luma_installed() then
-    state.view = "store"
-    if not state.catalog then
-      refresh_catalog()
-    end
-    state.toast = "Luma is not installed"
-    return false
-  end
-  clear()
-  if shell then
-    shell.run("/bin/luma.lua")
-  else
-    dofile("/luma/luma.lua")
-  end
-  return true
-end
-
-local function run_app(app)
-  if app.id == "luma" then
-    return run_luma()
-  end
-  if app.command and shell then
-    clear()
-    shell.run(app.command)
-    return true
-  end
-  state.toast = "App cannot be opened"
-  return false
-end
-
 local function set_modal(title, body, buttons)
-  state.modal = {
-    title = title,
-    body = body or {},
-    buttons = buttons or {},
-  }
+  state.modal = { title = title, body = body or {}, buttons = buttons or {} }
 end
 
 local function show_error(message)
   set_modal("Error", { tostring(message) }, {
-    { label = "Close", action = "close_modal", color = THEME.button_alt },
+    { label = "Close", action = "close_modal", color = THEME.button },
   })
+end
+
+local function prompt_text(title, default)
+  local width, height = size()
+  local modal_w = math.min(width - 8, 38)
+  local x = math.floor((width - modal_w) / 2) + 1
+  local y = math.floor(height / 2) - 2
+  fill(x + 1, y + 1, modal_w, 5, colors.black)
+  fill(x, y, modal_w, 5, THEME.glass)
+  fill(x, y, modal_w, 1, THEME.accent)
+  write_at(x + 1, y, trim(title, modal_w - 2), colors.black, THEME.accent)
+  write_at(x + 2, y + 2, string.rep(" ", modal_w - 4), colors.white, colors.black)
+  term.setCursorPos(x + 2, y + 2)
+  set_fg(colors.white)
+  set_bg(colors.black)
+  local value = read(nil, nil, nil, default or "")
+  reset_colors()
+  return value
 end
 
 local function install_app(app)
@@ -347,7 +391,6 @@ local function install_app(app)
     show_error("Invalid package")
     return
   end
-
   state.modal = nil
   state.toast = "Downloading " .. tostring(app.name or app.id)
   draw()
@@ -382,111 +425,307 @@ local function install_app(app)
     show_error("Install failed: " .. tostring(run_err))
     return
   end
-
   state.toast = tostring(app.name or app.id) .. " installed"
   refresh_catalog()
 end
 
-local function open_shell()
+local function open_view(view, app_id)
+  state.view = view
+  state.toast = ""
+  if app_id then
+    add_open(app_id)
+  end
+  if view == "store" and not state.catalog then
+    refresh_catalog()
+  end
+end
+
+local function run_luma()
+  if not luma_installed() then
+    open_view("store", "store")
+    state.toast = "Luma not installed"
+    return
+  end
+  add_open("luma")
+  clear()
+  if shell then
+    shell.run("/bin/luma.lua")
+  else
+    dofile("/luma/luma.lua")
+  end
+end
+
+local function open_terminal()
+  add_open("terminal")
   clear()
   if shell then
     shell.run("shell")
   end
 end
 
-local function title_for_view()
-  if state.view == "store" then
-    return "Store"
-  elseif state.view == "files" then
-    return "Files"
-  elseif state.view == "system" then
-    return "System"
+local function open_app(app_id)
+  if app_id == "finder" then
+    open_view("files", "finder")
+  elseif app_id == "store" then
+    open_view("store", "store")
+  elseif app_id == "luma" then
+    run_luma()
+  elseif app_id == "terminal" then
+    open_terminal()
+  elseif app_id == "system" then
+    open_view("system", "system")
   end
-  return "Desktop"
 end
 
-local function clock_text()
-  if textutils and textutils.formatTime and os.time then
-    return textutils.formatTime(os.time(), true)
-  end
-  return ""
-end
-
-local function draw_topbar()
+local function draw_menu_bar()
   local width = size()
-  fill(1, 1, width, 1, THEME.topbar)
-  write_at(2, 1, "DockOS", colors.white, THEME.topbar)
-  write_at(10, 1, title_for_view(), colors.cyan, THEME.topbar)
-  local clock = clock_text()
-  if clock ~= "" then
-    write_at(width - #clock, 1, clock, colors.lightGray, THEME.topbar)
+  fill(1, 1, width, 1, colors.gray)
+  write_at(2, 1, "DockOS", colors.white, colors.gray)
+  local title = state.view == "files" and "Files" or state.view == "store" and "Store" or state.view == "system" and "System" or "Desktop"
+  write_at(10, 1, title, colors.white, colors.gray)
+  local time_text = textutils and textutils.formatTime and textutils.formatTime(os.time(), true) or ""
+  if time_text ~= "" then
+    write_at(width - #time_text, 1, time_text, colors.lightGray, colors.gray)
   end
 end
 
-local function draw_sidebar()
-  local _, height = size()
-  fill(1, 2, 11, height - 1, THEME.sidebar)
-  local items = {
-    { id = "home", label = "Home", icon = "HM" },
-    { id = "store", label = "Store", icon = "ST" },
-    { id = "files", label = "Files", icon = "FS" },
-    { id = "system", label = "System", icon = "SY" },
+local function draw_desktop_icons()
+  local icons = {
+    { id = "finder", name = "Computer", icon = "HD" },
+    { id = "store", name = "Store", icon = "ST" },
+    { id = "luma", name = "Luma", icon = "LM" },
   }
+  local x = 3
   local y = 3
-  for _, item in ipairs(items) do
-    local active = state.view == item.id or (state.view == "home" and item.id == "home")
-    local bg = active and THEME.sidebar_active or THEME.sidebar
-    local fg = active and colors.black or colors.white
-    fill(2, y, 9, 2, bg)
-    write_at(3, y, item.icon, fg, bg)
-    write_at(6, y, trim_fit(item.label, 4), fg, bg)
-    hit("nav", 2, y, 9, 2, item.id)
-    y = y + 3
+  for _, item in ipairs(icons) do
+    fill(x, y, 8, 3, colors.black)
+    write_at(x + 2, y, item.icon, colors.white, colors.black)
+    write_at(x, y + 1, trim(item.name, 8), colors.lightGray, colors.black)
+    hit("desktop_app", x, y, 10, 3, item.id)
+    y = y + 4
   end
 end
 
-local function draw_toast()
-  if not state.toast or state.toast == "" then
+local function dock_width()
+  return (#PINNED * 5) + 3 + (#state.open_order * 5)
+end
+
+local function draw_dock_icon(x, y, app_id, hit_id)
+  local app = APPS[app_id]
+  if not app then
     return
   end
-  local width, height = size()
-  local text = trim_fit(state.toast, width - 16)
-  local x = math.max(13, width - #text - 4)
-  fill(x, height, #text + 3, 1, colors.black)
-  write_at(x + 1, height, text, colors.cyan, colors.black)
+  fill(x, y, 4, 2, app.color)
+  write_at(x + 1, y, app.icon, colors.white, app.color)
+  if state.open[app_id] then
+    write_at(x + 1, y + 1, "  ", colors.white, colors.white)
+  end
+  hit(hit_id, x, y, 4, 2, app_id)
 end
 
-local function draw_card(x, y, width, height, title, subtitle, color, action, payload)
+local function draw_dock()
+  local width, height = size()
+  local y = height - 2
+  local total = math.min(width - 2, dock_width())
+  local x = math.max(2, math.floor((width - total) / 2) + 1)
+  fill(x - 1, y - 1, total + 2, 3, colors.black)
+  fill(x, y, total, 3, colors.gray)
+
+  local cursor = x + 1
+  for _, app_id in ipairs(PINNED) do
+    draw_dock_icon(cursor, y, app_id, "dock_pinned")
+    cursor = cursor + 5
+  end
+
+  write_at(cursor, y, "|", colors.lightGray, colors.gray)
+  hit("open_drop_end", cursor, y, 2, 2, nil)
+  cursor = cursor + 3
+
+  for _, app_id in ipairs(state.open_order) do
+    draw_dock_icon(cursor, y, app_id, "dock_open")
+    cursor = cursor + 5
+  end
+end
+
+local function window_rect()
+  local width, height = size()
+  return 3, 3, width - 4, height - 7
+end
+
+local function draw_window(title)
+  local x, y, width, height = window_rect()
   fill(x + 1, y + 1, width, height, colors.black)
-  fill(x, y, width, height, THEME.panel)
-  fill(x, y, width, 1, color or THEME.accent)
-  write_at(x + 1, y + 2, trim_fit(title, width - 2), colors.white, THEME.panel)
-  if subtitle then
-    write_at(x + 1, y + 3, trim_fit(subtitle, width - 2), colors.lightGray, THEME.panel)
-  end
-  hit(action, x, y, width, height, payload)
+  fill(x, y, width, height, THEME.glass_dark)
+  fill(x, y, width, 1, THEME.title)
+  write_at(x + 2, y, trim(title, width - 4), colors.black, THEME.title)
+  return x, y, width, height
 end
 
-local function draw_desktop()
-  local width, height = size()
-  local x = 14
-  local y = 3
-  local card_w = math.max(15, math.floor((width - x - 2) / 2))
-  local card_h = 5
-  write_at(x, y, "Workspace", colors.white, THEME.desktop)
-  y = y + 2
-  for index, app in ipairs(APPS) do
-    local column = (index - 1) % 2
-    local row = math.floor((index - 1) / 2)
-    local card_x = x + column * (card_w + 2)
-    local card_y = y + row * (card_h + 1)
-    local state_text = app.id == "luma" and (luma_installed() and "Installed" or "Available") or "Ready"
-    draw_card(card_x, card_y, card_w, card_h, app.icon .. "  " .. app.name, state_text, app.color, "app", app.id)
+local function draw_button(id, x, y, label, payload, color)
+  local width = #label + 2
+  fill(x, y, width, 1, color or THEME.button)
+  write_at(x + 1, y, label, colors.white, color or THEME.button)
+  hit(id, x, y, width, 1, payload)
+  return width
+end
+
+local function list_files(path)
+  local entries = {}
+  for _, name in ipairs(fs.list(path)) do
+    local full = path_join(path, name)
+    table.insert(entries, {
+      name = name,
+      path = full,
+      dir = fs.isDir(full),
+      size = fs.isDir(full) and "-" or tostring(fs.getSize(full) or 0),
+    })
+  end
+  table.sort(entries, function(left, right)
+    if left.dir ~= right.dir then
+      return left.dir
+    end
+    return left.name:lower() < right.name:lower()
+  end)
+  return entries
+end
+
+local function selected_entry()
+  if not state.file_selected then
+    return nil
+  end
+  if fs.exists(state.file_selected) then
+    return {
+      name = basename(state.file_selected),
+      path = state.file_selected,
+      dir = fs.isDir(state.file_selected),
+    }
+  end
+  state.file_selected = nil
+  return nil
+end
+
+local function open_selected_file()
+  local entry = selected_entry()
+  if not entry then
+    return
+  end
+  if entry.dir then
+    state.file_path = entry.path
+    state.file_selected = nil
+    state.file_scroll = 0
+    state.preview = nil
+    return
+  end
+  if entry.path:match("%.lua$") and shell then
+    clear()
+    shell.run(entry.path)
+    return
+  end
+  state.preview = read_file(entry.path) or ""
+end
+
+local function create_file(kind)
+  local default = kind == "folder" and "New Folder" or "Untitled.txt"
+  local name = prompt_text(kind == "folder" and "New Folder" or "New File", default)
+  if not name or name == "" then
+    return
+  end
+  local path = path_join(state.file_path, name)
+  if fs.exists(path) then
+    state.toast = "Already exists"
+    return
+  end
+  if kind == "folder" then
+    fs.makeDir(path)
+  else
+    write_file(path, "")
+  end
+  state.file_selected = path
+end
+
+local function rename_selected()
+  local entry = selected_entry()
+  if not entry then
+    return
+  end
+  local name = prompt_text("Rename", entry.name)
+  if not name or name == "" or name == entry.name then
+    return
+  end
+  local target = path_join(state.file_path, name)
+  if fs.exists(target) then
+    state.toast = "Already exists"
+    return
+  end
+  fs.move(entry.path, target)
+  state.file_selected = target
+end
+
+local function delete_selected()
+  local entry = selected_entry()
+  if not entry then
+    return
+  end
+  set_modal("Delete", { entry.name }, {
+    { label = "Delete", action = "confirm_delete_file", color = THEME.danger },
+    { label = "Cancel", action = "close_modal", color = THEME.button },
+  })
+end
+
+local function draw_files()
+  local x, y, width, height = draw_window("Files")
+  local toolbar_y = y + 2
+  local bx = x + 2
+  bx = bx + draw_button("file_back", bx, toolbar_y, "<", nil, colors.gray) + 1
+  bx = bx + draw_button("file_new_folder", bx, toolbar_y, "Folder", nil, THEME.button) + 1
+  bx = bx + draw_button("file_new_file", bx, toolbar_y, "File", nil, THEME.button) + 1
+  bx = bx + draw_button("file_rename", bx, toolbar_y, "Rename", nil, colors.gray) + 1
+  bx = bx + draw_button("file_delete", bx, toolbar_y, "Delete", nil, THEME.danger) + 1
+  draw_button("file_open", bx, toolbar_y, "Open", nil, colors.purple)
+
+  write_at(x + 2, y + 4, trim(state.file_path, width - 4), colors.cyan, THEME.glass_dark)
+  local list_x = x + 2
+  local list_y = y + 6
+  local list_w = math.floor(width * 0.58)
+  local preview_x = list_x + list_w + 2
+  local preview_w = width - list_w - 6
+  local rows = height - 8
+  fill(list_x, list_y, list_w, rows + 1, colors.black)
+  fill(preview_x, list_y, preview_w, rows + 1, colors.black)
+  write_at(list_x + 1, list_y, pad("Name", list_w - 14) .. "Kind  Size", colors.lightGray, colors.black)
+
+  local entries = list_files(state.file_path)
+  for row = 1, rows do
+    local item = entries[row + state.file_scroll]
+    if not item then
+      break
+    end
+    local row_y = list_y + row
+    local selected = state.file_selected == item.path
+    local bg = selected and THEME.selected or (row % 2 == 0 and colors.black or colors.gray)
+    fill(list_x, row_y, list_w, 1, bg)
+    local kind = item.dir and "DIR " or "FILE"
+    write_at(list_x + 1, row_y, pad(item.name, list_w - 14), item.dir and colors.cyan or colors.white, bg)
+    write_at(list_x + list_w - 12, row_y, kind, colors.lightGray, bg)
+    write_at(list_x + list_w - 6, row_y, trim(item.size, 5), colors.lightGray, bg)
+    hit("file_select", list_x, row_y, list_w, 1, item.path)
   end
 
-  local panel_y = math.min(height - 4, y + 12)
-  fill(x, panel_y, width - x - 1, 3, THEME.panel_dark)
-  write_at(x + 1, panel_y + 1, "RIG is dev API. Dock is the UI.", colors.lightGray, THEME.panel_dark)
+  local entry = selected_entry()
+  if entry then
+    write_at(preview_x + 1, list_y, trim(entry.name, preview_w - 2), colors.white, colors.black)
+    write_at(preview_x + 1, list_y + 1, entry.dir and "Folder" or "File", colors.lightGray, colors.black)
+    if state.preview and not entry.dir then
+      local line_y = list_y + 3
+      for line in (state.preview .. "\n"):gmatch("(.-)\n") do
+        if line_y >= list_y + rows then
+          break
+        end
+        write_at(preview_x + 1, line_y, trim(line, preview_w - 2), colors.lightGray, colors.black)
+        line_y = line_y + 1
+      end
+    end
+  end
 end
 
 local function trust_color(app)
@@ -502,129 +741,93 @@ local function draw_store()
   if not state.catalog then
     refresh_catalog()
   end
-  local width, height = size()
-  local x = 14
-  local y = 3
-  write_at(x, y, "App Store", colors.white, THEME.desktop)
-  write_at(width - 12, y, state.catalog_source, colors.lightGray, THEME.desktop)
-  hit("refresh_store", width - 12, y, 10, 1, nil)
-
-  local top = y + 2
-  local card_h = 5
-  local visible = math.max(1, math.floor((height - top) / (card_h + 1)))
-  for row = 1, visible do
-    local app = state.catalog[row + state.store_scroll]
-    if not app then
+  local x, y, width, height = draw_window("Store")
+  write_at(x + width - 10, y, state.catalog_source, colors.black, THEME.title)
+  local row_y = y + 2
+  for index = 1 + state.store_scroll, #state.catalog do
+    local app = state.catalog[index]
+    if row_y + 4 >= y + height then
       break
     end
-    local card_y = top + (row - 1) * (card_h + 1)
-    local card_w = width - x - 1
-    fill(x, card_y, card_w, card_h, THEME.panel)
-    fill(x, card_y, 2, card_h, trust_color(app))
-    write_at(x + 3, card_y + 1, trim_fit(app.name or app.id, card_w - 18), colors.white, THEME.panel)
-    write_at(x + 3, card_y + 2, trim_fit(app.description or "", card_w - 6), colors.lightGray, THEME.panel)
-    write_at(x + 3, card_y + 3, string.upper(tostring(app.trust or "unreviewed")), trust_color(app), THEME.panel)
-
+    fill(x + 2, row_y, width - 4, 4, colors.black)
+    fill(x + 2, row_y, 2, 4, trust_color(app))
+    write_at(x + 5, row_y, trim(app.name or app.id, width - 24), colors.white, colors.black)
+    write_at(x + 5, row_y + 1, trim(app.description or "", width - 10), colors.lightGray, colors.black)
+    write_at(x + 5, row_y + 2, string.upper(tostring(app.trust or "unreviewed")), trust_color(app), colors.black)
     local installed = app_installed(app)
-    local button_label = installed and "OPEN" or "INSTALL"
-    local button_w = #button_label + 2
-    fill(x + card_w - button_w - 1, card_y + 1, button_w, 3, installed and colors.purple or THEME.button)
-    write_at(x + card_w - button_w, card_y + 2, button_label, colors.white, installed and colors.purple or THEME.button)
-    hit(installed and "run_catalog_app" or "install_catalog_app", x, card_y, card_w, card_h, app)
-  end
-end
-
-local function draw_files()
-  local width, height = size()
-  local x = 14
-  local y = 3
-  write_at(x, y, "Files", colors.white, THEME.desktop)
-  local files = fs.list("/")
-  table.sort(files)
-  local visible = height - y - 1
-  for row = 1, visible do
-    local name = files[row + state.file_scroll]
-    if not name then
-      break
-    end
-    local path = "/" .. name
-    local bg = row % 2 == 0 and colors.black or THEME.panel_dark
-    fill(x, y + row, width - x - 1, 1, bg)
-    write_at(x + 1, y + row, fs.isDir(path) and "DIR" or "FILE", fs.isDir(path) and colors.cyan or colors.lightGray, bg)
-    write_at(x + 7, y + row, trim_fit(name, width - x - 8), colors.white, bg)
+    draw_button(installed and "catalog_open" or "catalog_install", x + width - 13, row_y + 1, installed and "Open" or "Install", app, installed and colors.purple or THEME.button)
+    hit(installed and "catalog_open" or "catalog_install", x + 2, row_y, width - 4, 4, app)
+    row_y = row_y + 5
   end
 end
 
 local function draw_system()
-  local width = size()
-  local x = 14
-  local y = 3
-  write_at(x, y, "System", colors.white, THEME.desktop)
+  local x, y, width = draw_window("System")
   local rows = {
     { "DockOS", VERSION },
-    { "RIG devapi", rig_ui and "ready" or "fallback" },
     { "Computer", tostring(os.getComputerID and os.getComputerID() or "?") },
     { "HTTP", http and "enabled" or "disabled" },
-    { "Luma", luma_installed() and "installed" or "missing" },
-    { "Store", state.catalog_source or "offline" },
+    { "RIG", fs.exists("/rig/devapi/ui.lua") and "devapi" or "fallback" },
   }
-  y = y + 2
+  local row_y = y + 3
   for _, row in ipairs(rows) do
-    fill(x, y, width - x - 1, 2, THEME.panel_dark)
-    write_at(x + 1, y, row[1], colors.lightGray, THEME.panel_dark)
-    write_at(x + 16, y, row[2], colors.white, THEME.panel_dark)
-    y = y + 3
+    write_at(x + 3, row_y, pad(row[1], 12), colors.lightGray, THEME.glass_dark)
+    write_at(x + 17, row_y, trim(row[2], width - 20), colors.white, THEME.glass_dark)
+    row_y = row_y + 2
   end
+end
+
+local function draw_modal()
+  if not state.modal then
+    return
+  end
+  local width, height = size()
+  local modal_w = math.min(width - 8, 38)
+  local modal_h = 7 + #(state.modal.body or {})
+  local x = math.floor((width - modal_w) / 2) + 1
+  local y = math.floor((height - modal_h) / 2) + 1
+  fill(x + 1, y + 1, modal_w, modal_h, colors.black)
+  fill(x, y, modal_w, modal_h, THEME.glass)
+  fill(x, y, modal_w, 1, THEME.accent)
+  write_at(x + 1, y, trim(state.modal.title, modal_w - 2), colors.black, THEME.accent)
+  for index, line in ipairs(state.modal.body or {}) do
+    write_at(x + 2, y + 1 + index, trim(line, modal_w - 4), colors.white, THEME.glass)
+  end
+  local bx = x + 2
+  local by = y + modal_h - 2
+  for _, button in ipairs(state.modal.buttons or {}) do
+    bx = bx + draw_button(button.action, bx, by, button.label, button.payload, button.color) + 2
+  end
+end
+
+local function draw_toast()
+  if not state.toast or state.toast == "" then
+    return
+  end
+  local width, height = size()
+  local text = trim(state.toast, width - 12)
+  local x = math.max(2, width - #text - 3)
+  fill(x, height - 4, #text + 2, 1, colors.black)
+  write_at(x + 1, height - 4, text, colors.cyan, colors.black)
 end
 
 function draw()
   hitboxes = {}
   clear()
-  fill(1, 1, size(), select(2, size()), THEME.desktop)
-  draw_topbar()
-  draw_sidebar()
-  if state.view == "store" then
-    draw_store()
-  elseif state.view == "files" then
+  local width, height = size()
+  fill(1, 1, width, height, THEME.desktop)
+  draw_menu_bar()
+  draw_desktop_icons()
+  if state.view == "files" then
     draw_files()
+  elseif state.view == "store" then
+    draw_store()
   elseif state.view == "system" then
     draw_system()
-  else
-    draw_desktop()
   end
+  draw_dock()
   draw_toast()
-
-  if state.modal then
-    local width, height = size()
-    local modal_w = math.min(width - 8, 38)
-    local modal_h = 7 + #(state.modal.body or {})
-    local x = math.floor((width - modal_w) / 2) + 1
-    local y = math.floor((height - modal_h) / 2) + 1
-    fill(x + 1, y + 1, modal_w, modal_h, colors.black)
-    fill(x, y, modal_w, modal_h, THEME.panel)
-    fill(x, y, modal_w, 1, THEME.accent)
-    write_at(x + 1, y, trim_fit(state.modal.title, modal_w - 2), colors.black, THEME.accent)
-    for index, line in ipairs(state.modal.body or {}) do
-      write_at(x + 2, y + 1 + index, trim_fit(line, modal_w - 4), colors.white, THEME.panel)
-    end
-    local button_y = y + modal_h - 2
-    local button_x = x + 2
-    for _, button in ipairs(state.modal.buttons or {}) do
-      local button_w = #button.label + 4
-      fill(button_x, button_y, button_w, 2, button.color or THEME.button)
-      write_at(button_x + 2, button_y, button.label, colors.white, button.color or THEME.button)
-      hit(button.action, button_x, button_y, button_w, 2, button.payload)
-      button_x = button_x + button_w + 2
-    end
-  end
-end
-
-local function open_view(view)
-  state.view = view
-  state.toast = ""
-  if view == "store" and not state.catalog then
-    refresh_catalog()
-  end
+  draw_modal()
 end
 
 local function confirm_install(app)
@@ -632,44 +835,75 @@ local function confirm_install(app)
     install_app(app)
     return
   end
-  set_modal("Unreviewed package", {
-    tostring(app.name or app.id),
-    "This package is not verified.",
-  }, {
+  set_modal("Unreviewed", { tostring(app.name or app.id) }, {
     { label = "Install", action = "confirm_install", payload = app, color = THEME.warning },
-    { label = "Cancel", action = "close_modal", color = THEME.button_alt },
+    { label = "Cancel", action = "close_modal", color = THEME.button },
   })
 end
 
 local function handle_action(id, payload)
   if id == "close_modal" then
     state.modal = nil
+  elseif id == "desktop_app" or id == "dock_pinned" then
+    open_app(payload)
+  elseif id == "dock_open" then
+    state.dragging_open = payload
+    if payload == "finder" then
+      open_view("files", "finder")
+    elseif payload == "store" then
+      open_view("store", "store")
+    elseif payload == "system" then
+      open_view("system", "system")
+    else
+      state.toast = APPS[payload] and APPS[payload].name or ""
+    end
+  elseif id == "open_drop_end" and state.dragging_open then
+    move_open(state.dragging_open, nil)
+    state.dragging_open = nil
+  elseif id == "catalog_install" then
+    confirm_install(payload)
   elseif id == "confirm_install" then
     install_app(payload)
-  elseif id == "nav" then
-    open_view(payload)
-  elseif id == "refresh_store" then
-    refresh_catalog()
-    state.toast = "Store refreshed"
-  elseif id == "app" then
-    if payload == "store" then
-      open_view("store")
-    elseif payload == "luma" then
+  elseif id == "catalog_open" then
+    if payload.id == "luma" then
       run_luma()
-    elseif payload == "files" then
-      open_view("files")
-    elseif payload == "shell" then
-      open_shell()
     end
-  elseif id == "install_catalog_app" then
-    confirm_install(payload)
-  elseif id == "run_catalog_app" then
-    run_app(payload)
+  elseif id == "file_select" then
+    if state.file_selected == payload then
+      open_selected_file()
+    else
+      state.file_selected = payload
+      state.preview = nil
+    end
+  elseif id == "file_back" then
+    state.file_path = parent_path(state.file_path)
+    state.file_selected = nil
+    state.file_scroll = 0
+  elseif id == "file_new_folder" then
+    create_file("folder")
+  elseif id == "file_new_file" then
+    create_file("file")
+  elseif id == "file_rename" then
+    rename_selected()
+  elseif id == "file_delete" then
+    delete_selected()
+  elseif id == "file_open" then
+    open_selected_file()
+  elseif id == "confirm_delete_file" then
+    local entry = selected_entry()
+    if entry then
+      fs.delete(entry.path)
+      state.file_selected = nil
+      state.preview = nil
+    end
+    state.modal = nil
   end
 end
 
 local function loop(initial_view)
-  open_view(initial_view or "home")
+  if initial_view and initial_view ~= "desktop" then
+    open_view(initial_view, initial_view == "files" and "finder" or initial_view)
+  end
   while true do
     draw()
     local event, first, second, third = os.pullEvent()
@@ -677,12 +911,24 @@ local function loop(initial_view)
       local box = hit_at(second, third)
       if box then
         handle_action(box.id, box.payload)
+      else
+        state.view = "desktop"
+      end
+    elseif event == "mouse_up" then
+      local box = hit_at(second, third)
+      if state.dragging_open then
+        if box and box.id == "dock_open" then
+          move_open(state.dragging_open, box.payload)
+        elseif box and box.id == "open_drop_end" then
+          move_open(state.dragging_open, nil)
+        end
+        state.dragging_open = nil
       end
     elseif event == "mouse_scroll" then
-      if state.view == "store" and state.catalog then
-        state.store_scroll = math.max(0, math.min(math.max(0, #state.catalog - 1), state.store_scroll + first))
-      elseif state.view == "files" then
+      if state.view == "files" then
         state.file_scroll = math.max(0, state.file_scroll + first)
+      elseif state.view == "store" and state.catalog then
+        state.store_scroll = math.max(0, math.min(math.max(0, #state.catalog - 1), state.store_scroll + first))
       end
     elseif event == "key" then
       if first == keys.q then
@@ -692,10 +938,12 @@ local function loop(initial_view)
         if state.modal then
           state.modal = nil
         else
-          open_view("home")
+          state.view = "desktop"
         end
-      elseif first == keys.r and state.view == "store" then
-        refresh_catalog()
+      elseif first == keys.enter and state.view == "files" then
+        open_selected_file()
+      elseif first == keys.delete and state.view == "files" then
+        delete_selected()
       end
     end
   end
@@ -703,12 +951,9 @@ end
 
 local function print_apps()
   print("DockOS " .. VERSION)
-  for _, app in ipairs(APPS) do
-    local status = "ready"
-    if app.id == "luma" then
-      status = luma_installed() and "installed" or "available"
-    end
-    print(app.id .. "  " .. status)
+  for _, app_id in ipairs(PINNED) do
+    local app = APPS[app_id]
+    print(app.id .. " " .. app.name)
   end
 end
 
@@ -726,11 +971,13 @@ end
 local command = args[1] or "home"
 
 if command == "home" or command == "ui" then
-  loop("home")
+  loop("desktop")
 elseif command == "store" and args[2] == "install" and args[3] then
   install_by_id(args[3])
 elseif command == "store" then
   loop("store")
+elseif command == "files" then
+  loop("files")
 elseif command == "apps" then
   print_apps()
 elseif command == "run" and args[2] == "luma" then
@@ -738,5 +985,5 @@ elseif command == "run" and args[2] == "luma" then
 elseif command == "version" then
   print(VERSION)
 else
-  loop("home")
+  loop("desktop")
 end

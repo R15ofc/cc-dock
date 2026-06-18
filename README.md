@@ -4,11 +4,11 @@ DockOS is the Advanced Computer OS layer for the RIG platform.
 
 It is not a text menu. The main UI is mouse-driven and built for color Advanced PCs:
 
-- desktop cards;
-- sidebar navigation;
-- app store cards;
-- modal install windows;
-- file/system panels.
+- Mac-style desktop;
+- bottom dock with pinned apps on the left;
+- `|` separator with open apps on the right;
+- draggable open-app dock order;
+- Finder-style Files with folder/file creation, rename, delete, preview, and open.
 
 Repositories:
 
