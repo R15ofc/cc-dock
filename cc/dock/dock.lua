@@ -1,4 +1,4 @@
-local VERSION = "0.2.0"
+local VERSION = "0.3.0"
 local LUMA_INSTALLER_URL = "https://raw.githubusercontent.com/R15ofc/cc-luma/main/luma-installer.lua"
 local LUMA_SOURCE_URL = "https://raw.githubusercontent.com/R15ofc/cc-luma/main/cc"
 local STORE_PROTOCOL = "dock.store"
@@ -6,11 +6,29 @@ local STORE_REPLY_PROTOCOL = "dock.store.reply"
 
 local args = { ... }
 
+local THEME = {
+  desktop = colors.black,
+  sidebar = colors.gray,
+  sidebar_active = colors.cyan,
+  topbar = colors.gray,
+  panel = colors.gray,
+  panel_dark = colors.black,
+  panel_light = colors.lightGray,
+  text = colors.white,
+  muted = colors.lightGray,
+  accent = colors.cyan,
+  success = colors.lime,
+  warning = colors.orange,
+  danger = colors.red,
+  button = colors.blue,
+  button_alt = colors.gray,
+}
+
 local APPS = {
-  { id = "store", name = "Store", icon = "[]", kind = "system" },
-  { id = "luma", name = "Luma", icon = "LM", kind = "app" },
-  { id = "shell", name = "Shell", icon = ">_", kind = "system" },
-  { id = "files", name = "Files", icon = "{}", kind = "system" },
+  { id = "store", name = "Store", icon = "ST", color = colors.cyan },
+  { id = "luma", name = "Luma", icon = "LM", color = colors.purple },
+  { id = "files", name = "Files", icon = "FS", color = colors.blue },
+  { id = "shell", name = "Shell", icon = ">_", color = colors.green },
 }
 
 local BUILTIN_CATALOG = {
@@ -23,6 +41,43 @@ local BUILTIN_CATALOG = {
     source = LUMA_SOURCE_URL,
   },
 }
+
+local function load_rig_devapi(name)
+  if fs.exists("/rig/bootstrap.lua") then
+    local ok, module = pcall(function()
+      return dofile("/rig/bootstrap.lua").require("devapi." .. name)
+    end)
+    if ok and type(module) == "table" then
+      return module
+    end
+  end
+  local path = "/rig/devapi/" .. name .. ".lua"
+  if fs.exists(path) then
+    local ok, module = pcall(dofile, path)
+    if ok and type(module) == "table" then
+      return module
+    end
+  end
+  return nil
+end
+
+local rig_app = load_rig_devapi("app")
+local rig_store = load_rig_devapi("store")
+local rig_ui = load_rig_devapi("ui")
+
+local state = {
+  view = "home",
+  catalog = nil,
+  catalog_source = "offline",
+  selected = 1,
+  store_scroll = 0,
+  file_scroll = 0,
+  toast = "",
+  modal = nil,
+}
+
+local hitboxes = {}
+local draw
 
 local function can_color()
   return term and term.isColor and term.isColor()
@@ -47,18 +102,23 @@ local function reset_colors()
   end
 end
 
-local function clear()
-  reset_colors()
-  term.clear()
-  term.setCursorPos(1, 1)
-end
-
 local function size()
   local width, height = term.getSize()
   return width or 51, height or 19
 end
 
 local function fit(text, width)
+  text = tostring(text or "")
+  if #text <= width then
+    return text .. string.rep(" ", math.max(0, width - #text))
+  end
+  if width <= 1 then
+    return text:sub(1, width)
+  end
+  return text:sub(1, width - 1) .. "."
+end
+
+local function trim_fit(text, width)
   text = tostring(text or "")
   if #text <= width then
     return text
@@ -77,28 +137,50 @@ local function write_at(x, y, text, fg, bg)
     set_bg(bg)
   end
   term.setCursorPos(x, y)
-  term.write(text)
+  term.write(tostring(text or ""))
   reset_colors()
 end
 
-local function draw_bar(title)
-  local width = size()
-  set_bg(colors.gray)
-  set_fg(colors.white)
+local function fill(x, y, width, height, bg)
+  if width <= 0 or height <= 0 then
+    return
+  end
+  set_bg(bg or colors.black)
+  for row = y, y + height - 1 do
+    term.setCursorPos(x, row)
+    term.write(string.rep(" ", width))
+  end
+  reset_colors()
+end
+
+local function clear()
+  reset_colors()
+  term.clear()
   term.setCursorPos(1, 1)
-  term.clearLine()
-  term.write(fit(" DockOS  " .. title, width))
-  reset_colors()
 end
 
-local function draw_status(text)
-  local width, height = size()
-  set_bg(colors.gray)
-  set_fg(colors.lightGray)
-  term.setCursorPos(1, height)
-  term.clearLine()
-  term.write(fit(text, width))
-  reset_colors()
+local function hit(id, x, y, width, height, payload)
+  if width <= 0 or height <= 0 then
+    return
+  end
+  table.insert(hitboxes, {
+    id = id,
+    x1 = x,
+    y1 = y,
+    x2 = x + width - 1,
+    y2 = y + height - 1,
+    payload = payload,
+  })
+end
+
+local function hit_at(x, y)
+  for index = #hitboxes, 1, -1 do
+    local box = hitboxes[index]
+    if x >= box.x1 and x <= box.x2 and y >= box.y1 and y <= box.y2 then
+      return box
+    end
+  end
+  return nil
 end
 
 local function ensure_parent(path)
@@ -109,6 +191,9 @@ local function ensure_parent(path)
 end
 
 local function write_file(path, data)
+  if rig_app and rig_app.write_file then
+    return rig_app.write_file(path, data)
+  end
   ensure_parent(path)
   local handle = fs.open(path, "w")
   if not handle then
@@ -120,6 +205,9 @@ local function write_file(path, data)
 end
 
 local function download(url)
+  if rig_app and rig_app.download then
+    return rig_app.download(url, { ["Accept"] = "text/plain" })
+  end
   if not http then
     return nil, "HTTP API is disabled"
   end
@@ -137,6 +225,21 @@ local function download(url)
     return nil, "HTTP " .. tostring(code)
   end
   return body or ""
+end
+
+local function run_hidden(callback)
+  if rig_app and rig_app.run_hidden then
+    return rig_app.run_hidden(callback)
+  end
+  if window and term and term.current and term.redirect then
+    local current = term.current()
+    local hidden = window.create(current, 1, 1, 1, 1, false)
+    term.redirect(hidden)
+    local ok, result = pcall(callback)
+    term.redirect(current)
+    return ok, result
+  end
+  return pcall(callback)
 end
 
 local function is_modem(name)
@@ -164,31 +267,27 @@ local function open_rednet()
 end
 
 local function fetch_catalog()
+  if rig_store and rig_store.catalog then
+    return rig_store.catalog()
+  end
   if not open_rednet() then
-    return BUILTIN_CATALOG, "offline catalog"
+    return BUILTIN_CATALOG, "offline"
   end
   rednet.broadcast({ type = "catalog" }, STORE_PROTOCOL)
-  local _, message = rednet.receive(STORE_REPLY_PROTOCOL, 1.5)
+  local _, message = rednet.receive(STORE_REPLY_PROTOCOL, 1)
   if type(message) == "table" and message.ok and type(message.apps) == "table" then
-    return message.apps, "server catalog"
+    return message.apps, "server"
   end
-  return BUILTIN_CATALOG, "offline catalog"
+  return BUILTIN_CATALOG, "offline"
+end
+
+local function refresh_catalog()
+  state.catalog, state.catalog_source = fetch_catalog()
+  state.store_scroll = 0
 end
 
 local function luma_installed()
   return fs.exists("/luma/luma.lua")
-end
-
-local function run_luma()
-  if not luma_installed() then
-    return false, "Luma is not installed"
-  end
-  if shell then
-    shell.run("/bin/luma.lua")
-  else
-    dofile("/luma/luma.lua")
-  end
-  return true
 end
 
 local function app_installed(app)
@@ -198,228 +297,440 @@ local function app_installed(app)
   return fs.exists("/dock/apps/" .. tostring(app.id) .. ".lua")
 end
 
+local function run_luma()
+  if not luma_installed() then
+    state.view = "store"
+    if not state.catalog then
+      refresh_catalog()
+    end
+    state.toast = "Luma is not installed"
+    return false
+  end
+  clear()
+  if shell then
+    shell.run("/bin/luma.lua")
+  else
+    dofile("/luma/luma.lua")
+  end
+  return true
+end
+
 local function run_app(app)
   if app.id == "luma" then
     return run_luma()
   end
   if app.command and shell then
+    clear()
     shell.run(app.command)
     return true
   end
-  return false, "App cannot be opened"
+  state.toast = "App cannot be opened"
+  return false
+end
+
+local function set_modal(title, body, buttons)
+  state.modal = {
+    title = title,
+    body = body or {},
+    buttons = buttons or {},
+  }
+end
+
+local function show_error(message)
+  set_modal("Error", { tostring(message) }, {
+    { label = "Close", action = "close_modal", color = THEME.button_alt },
+  })
 end
 
 local function install_app(app)
-  clear()
-  draw_bar("Store")
-  write_at(2, 3, "Installing verified app", colors.white)
-  write_at(2, 5, app.name or app.id, colors.cyan)
-  draw_status("Downloading package...")
-
-  if app.trust ~= "verified" then
-    write_at(2, 7, "Warning: this package is not verified.", colors.orange)
-    write_at(2, 8, "Press enter to continue or q to cancel.", colors.lightGray)
-    local _, key = os.pullEvent("key")
-    if key == keys.q then
-      draw_status("Cancelled.")
-      sleep(0.5)
-      return
-    end
+  if not app or not app.installer then
+    show_error("Invalid package")
+    return
   end
+
+  state.modal = nil
+  state.toast = "Downloading " .. tostring(app.name or app.id)
+  draw()
 
   local body, err = download(app.installer)
   if not body then
-    draw_status("Failed: " .. tostring(err))
-    os.pullEvent("key")
+    show_error("Download failed: " .. tostring(err))
     return
   end
+
+  state.toast = "Installing " .. tostring(app.name or app.id)
+  draw()
 
   local installer_path = "/tmp/" .. tostring(app.id) .. "-installer.lua"
   local ok, write_err = write_file(installer_path, body)
   if not ok then
-    draw_status("Failed: " .. tostring(write_err))
-    os.pullEvent("key")
+    show_error(write_err)
     return
   end
 
-  draw_status("Applying files...")
-  if shell then
-    if app.source then
-      shell.run(installer_path, "--source", app.source)
-    else
-      shell.run(installer_path)
+  local run_ok, run_err = run_hidden(function()
+    if shell then
+      if app.source then
+        return shell.run(installer_path, "--source", app.source)
+      end
+      return shell.run(installer_path)
     end
-  else
-    dofile(installer_path)
+    return dofile(installer_path)
+  end)
+
+  if not run_ok then
+    show_error("Install failed: " .. tostring(run_err))
+    return
   end
-  draw_status("Done. Press any key.")
-  os.pullEvent("key")
+
+  state.toast = tostring(app.name or app.id) .. " installed"
+  refresh_catalog()
 end
 
 local function open_shell()
+  clear()
   if shell then
     shell.run("shell")
   end
 end
 
-local function draw_home(selected)
-  clear()
-  draw_bar("Home")
+local function title_for_view()
+  if state.view == "store" then
+    return "Store"
+  elseif state.view == "files" then
+    return "Files"
+  elseif state.view == "system" then
+    return "System"
+  end
+  return "Desktop"
+end
+
+local function clock_text()
+  if textutils and textutils.formatTime and os.time then
+    return textutils.formatTime(os.time(), true)
+  end
+  return ""
+end
+
+local function draw_topbar()
   local width = size()
-  local columns = width >= 42 and 3 or 2
-  local cell_width = math.floor(width / columns)
-  local start_y = 3
-
-  for index, app in ipairs(APPS) do
-    local column = ((index - 1) % columns)
-    local row = math.floor((index - 1) / columns)
-    local x = column * cell_width + 2
-    local y = start_y + row * 4
-    local selected_app = index == selected
-    local bg = selected_app and colors.blue or colors.black
-    local fg = selected_app and colors.white or colors.lightGray
-    write_at(x, y, "+" .. string.rep("-", math.max(8, cell_width - 4)) .. "+", fg, bg)
-    write_at(x, y + 1, "| " .. app.icon .. " " .. fit(app.name, math.max(4, cell_width - 8)), fg, bg)
-    write_at(x, y + 2, "+" .. string.rep("-", math.max(8, cell_width - 4)) .. "+", fg, bg)
-  end
-
-  draw_status("arrows: select  enter: open  q: quit")
-end
-
-local function draw_store(selected, catalog, source)
-  clear()
-  draw_bar("App Store")
-  write_at(2, 3, "Catalog: " .. tostring(source), colors.white)
-  local width, height = size()
-  local top = 5
-  for index, app in ipairs(catalog) do
-    if top + 2 >= height then
-      break
-    end
-    local marker = selected == index and ">" or " "
-    local state = app_installed(app) and "installed" or tostring(app.trust or "unreviewed")
-    local color = app.trust == "verified" and colors.cyan or colors.orange
-    write_at(2, top, marker .. " " .. fit(app.name or app.id, width - 4), color)
-    write_at(5, top + 1, fit(state .. " - " .. tostring(app.description or ""), width - 6), colors.lightGray)
-    top = top + 3
-  end
-  draw_status("arrows: select  enter: install/open  r: refresh  q: back")
-end
-
-local function store_loop()
-  local selected = 1
-  local catalog, source = fetch_catalog()
-  while true do
-    draw_store(selected, catalog, source)
-    local _, key = os.pullEvent("key")
-    if key == keys.q or key == keys.backspace then
-      return
-    elseif key == keys.up and selected > 1 then
-      selected = selected - 1
-    elseif key == keys.down and selected < #catalog then
-      selected = selected + 1
-    elseif key == keys.r then
-      catalog, source = fetch_catalog()
-      selected = 1
-    elseif key == keys.enter then
-      local app = catalog[selected]
-      if app and app_installed(app) then
-        run_app(app)
-      elseif app then
-        install_app(app)
-        catalog, source = fetch_catalog()
-      end
-    end
+  fill(1, 1, width, 1, THEME.topbar)
+  write_at(2, 1, "DockOS", colors.white, THEME.topbar)
+  write_at(10, 1, title_for_view(), colors.cyan, THEME.topbar)
+  local clock = clock_text()
+  if clock ~= "" then
+    write_at(width - #clock, 1, clock, colors.lightGray, THEME.topbar)
   end
 end
 
-local function install_by_id(app_id)
-  local catalog = fetch_catalog()
-  for _, app in ipairs(catalog) do
-    if app.id == app_id then
-      if app_installed(app) then
-        local ok, err = run_app(app)
-        if not ok then
-          print("ERR " .. tostring(err))
-        end
-      else
-        install_app(app)
-      end
-      return
-    end
-  end
-  print("ERR app not found: " .. tostring(app_id))
-end
-
-local function open_files()
-  clear()
-  draw_bar("Files")
+local function draw_sidebar()
+  local _, height = size()
+  fill(1, 2, 11, height - 1, THEME.sidebar)
+  local items = {
+    { id = "home", label = "Home", icon = "HM" },
+    { id = "store", label = "Store", icon = "ST" },
+    { id = "files", label = "Files", icon = "FS" },
+    { id = "system", label = "System", icon = "SY" },
+  }
   local y = 3
-  for _, name in ipairs(fs.list("/")) do
-    if y >= select(2, size()) then
-      break
-    end
-    write_at(2, y, name, fs.isDir("/" .. name) and colors.cyan or colors.lightGray)
-    y = y + 1
+  for _, item in ipairs(items) do
+    local active = state.view == item.id or (state.view == "home" and item.id == "home")
+    local bg = active and THEME.sidebar_active or THEME.sidebar
+    local fg = active and colors.black or colors.white
+    fill(2, y, 9, 2, bg)
+    write_at(3, y, item.icon, fg, bg)
+    write_at(6, y, trim_fit(item.label, 4), fg, bg)
+    hit("nav", 2, y, 9, 2, item.id)
+    y = y + 3
   end
-  draw_status("press any key")
-  os.pullEvent("key")
 end
 
-local function home_loop()
-  local selected = 1
+local function draw_toast()
+  if not state.toast or state.toast == "" then
+    return
+  end
+  local width, height = size()
+  local text = trim_fit(state.toast, width - 16)
+  local x = math.max(13, width - #text - 4)
+  fill(x, height, #text + 3, 1, colors.black)
+  write_at(x + 1, height, text, colors.cyan, colors.black)
+end
+
+local function draw_card(x, y, width, height, title, subtitle, color, action, payload)
+  fill(x + 1, y + 1, width, height, colors.black)
+  fill(x, y, width, height, THEME.panel)
+  fill(x, y, width, 1, color or THEME.accent)
+  write_at(x + 1, y + 2, trim_fit(title, width - 2), colors.white, THEME.panel)
+  if subtitle then
+    write_at(x + 1, y + 3, trim_fit(subtitle, width - 2), colors.lightGray, THEME.panel)
+  end
+  hit(action, x, y, width, height, payload)
+end
+
+local function draw_desktop()
+  local width, height = size()
+  local x = 14
+  local y = 3
+  local card_w = math.max(15, math.floor((width - x - 2) / 2))
+  local card_h = 5
+  write_at(x, y, "Workspace", colors.white, THEME.desktop)
+  y = y + 2
+  for index, app in ipairs(APPS) do
+    local column = (index - 1) % 2
+    local row = math.floor((index - 1) / 2)
+    local card_x = x + column * (card_w + 2)
+    local card_y = y + row * (card_h + 1)
+    local state_text = app.id == "luma" and (luma_installed() and "Installed" or "Available") or "Ready"
+    draw_card(card_x, card_y, card_w, card_h, app.icon .. "  " .. app.name, state_text, app.color, "app", app.id)
+  end
+
+  local panel_y = math.min(height - 4, y + 12)
+  fill(x, panel_y, width - x - 1, 3, THEME.panel_dark)
+  write_at(x + 1, panel_y + 1, "RIG is dev API. Dock is the UI.", colors.lightGray, THEME.panel_dark)
+end
+
+local function trust_color(app)
+  if app.trust == "verified" then
+    return THEME.success
+  elseif app.trust == "blocked" then
+    return THEME.danger
+  end
+  return THEME.warning
+end
+
+local function draw_store()
+  if not state.catalog then
+    refresh_catalog()
+  end
+  local width, height = size()
+  local x = 14
+  local y = 3
+  write_at(x, y, "App Store", colors.white, THEME.desktop)
+  write_at(width - 12, y, state.catalog_source, colors.lightGray, THEME.desktop)
+  hit("refresh_store", width - 12, y, 10, 1, nil)
+
+  local top = y + 2
+  local card_h = 5
+  local visible = math.max(1, math.floor((height - top) / (card_h + 1)))
+  for row = 1, visible do
+    local app = state.catalog[row + state.store_scroll]
+    if not app then
+      break
+    end
+    local card_y = top + (row - 1) * (card_h + 1)
+    local card_w = width - x - 1
+    fill(x, card_y, card_w, card_h, THEME.panel)
+    fill(x, card_y, 2, card_h, trust_color(app))
+    write_at(x + 3, card_y + 1, trim_fit(app.name or app.id, card_w - 18), colors.white, THEME.panel)
+    write_at(x + 3, card_y + 2, trim_fit(app.description or "", card_w - 6), colors.lightGray, THEME.panel)
+    write_at(x + 3, card_y + 3, string.upper(tostring(app.trust or "unreviewed")), trust_color(app), THEME.panel)
+
+    local installed = app_installed(app)
+    local button_label = installed and "OPEN" or "INSTALL"
+    local button_w = #button_label + 2
+    fill(x + card_w - button_w - 1, card_y + 1, button_w, 3, installed and colors.purple or THEME.button)
+    write_at(x + card_w - button_w, card_y + 2, button_label, colors.white, installed and colors.purple or THEME.button)
+    hit(installed and "run_catalog_app" or "install_catalog_app", x, card_y, card_w, card_h, app)
+  end
+end
+
+local function draw_files()
+  local width, height = size()
+  local x = 14
+  local y = 3
+  write_at(x, y, "Files", colors.white, THEME.desktop)
+  local files = fs.list("/")
+  table.sort(files)
+  local visible = height - y - 1
+  for row = 1, visible do
+    local name = files[row + state.file_scroll]
+    if not name then
+      break
+    end
+    local path = "/" .. name
+    local bg = row % 2 == 0 and colors.black or THEME.panel_dark
+    fill(x, y + row, width - x - 1, 1, bg)
+    write_at(x + 1, y + row, fs.isDir(path) and "DIR" or "FILE", fs.isDir(path) and colors.cyan or colors.lightGray, bg)
+    write_at(x + 7, y + row, trim_fit(name, width - x - 8), colors.white, bg)
+  end
+end
+
+local function draw_system()
+  local width = size()
+  local x = 14
+  local y = 3
+  write_at(x, y, "System", colors.white, THEME.desktop)
+  local rows = {
+    { "DockOS", VERSION },
+    { "RIG devapi", rig_ui and "ready" or "fallback" },
+    { "Computer", tostring(os.getComputerID and os.getComputerID() or "?") },
+    { "HTTP", http and "enabled" or "disabled" },
+    { "Luma", luma_installed() and "installed" or "missing" },
+    { "Store", state.catalog_source or "offline" },
+  }
+  y = y + 2
+  for _, row in ipairs(rows) do
+    fill(x, y, width - x - 1, 2, THEME.panel_dark)
+    write_at(x + 1, y, row[1], colors.lightGray, THEME.panel_dark)
+    write_at(x + 16, y, row[2], colors.white, THEME.panel_dark)
+    y = y + 3
+  end
+end
+
+function draw()
+  hitboxes = {}
+  clear()
+  fill(1, 1, size(), select(2, size()), THEME.desktop)
+  draw_topbar()
+  draw_sidebar()
+  if state.view == "store" then
+    draw_store()
+  elseif state.view == "files" then
+    draw_files()
+  elseif state.view == "system" then
+    draw_system()
+  else
+    draw_desktop()
+  end
+  draw_toast()
+
+  if state.modal then
+    local width, height = size()
+    local modal_w = math.min(width - 8, 38)
+    local modal_h = 7 + #(state.modal.body or {})
+    local x = math.floor((width - modal_w) / 2) + 1
+    local y = math.floor((height - modal_h) / 2) + 1
+    fill(x + 1, y + 1, modal_w, modal_h, colors.black)
+    fill(x, y, modal_w, modal_h, THEME.panel)
+    fill(x, y, modal_w, 1, THEME.accent)
+    write_at(x + 1, y, trim_fit(state.modal.title, modal_w - 2), colors.black, THEME.accent)
+    for index, line in ipairs(state.modal.body or {}) do
+      write_at(x + 2, y + 1 + index, trim_fit(line, modal_w - 4), colors.white, THEME.panel)
+    end
+    local button_y = y + modal_h - 2
+    local button_x = x + 2
+    for _, button in ipairs(state.modal.buttons or {}) do
+      local button_w = #button.label + 4
+      fill(button_x, button_y, button_w, 2, button.color or THEME.button)
+      write_at(button_x + 2, button_y, button.label, colors.white, button.color or THEME.button)
+      hit(button.action, button_x, button_y, button_w, 2, button.payload)
+      button_x = button_x + button_w + 2
+    end
+  end
+end
+
+local function open_view(view)
+  state.view = view
+  state.toast = ""
+  if view == "store" and not state.catalog then
+    refresh_catalog()
+  end
+end
+
+local function confirm_install(app)
+  if app.trust == "verified" then
+    install_app(app)
+    return
+  end
+  set_modal("Unreviewed package", {
+    tostring(app.name or app.id),
+    "This package is not verified.",
+  }, {
+    { label = "Install", action = "confirm_install", payload = app, color = THEME.warning },
+    { label = "Cancel", action = "close_modal", color = THEME.button_alt },
+  })
+end
+
+local function handle_action(id, payload)
+  if id == "close_modal" then
+    state.modal = nil
+  elseif id == "confirm_install" then
+    install_app(payload)
+  elseif id == "nav" then
+    open_view(payload)
+  elseif id == "refresh_store" then
+    refresh_catalog()
+    state.toast = "Store refreshed"
+  elseif id == "app" then
+    if payload == "store" then
+      open_view("store")
+    elseif payload == "luma" then
+      run_luma()
+    elseif payload == "files" then
+      open_view("files")
+    elseif payload == "shell" then
+      open_shell()
+    end
+  elseif id == "install_catalog_app" then
+    confirm_install(payload)
+  elseif id == "run_catalog_app" then
+    run_app(payload)
+  end
+end
+
+local function loop(initial_view)
+  open_view(initial_view or "home")
   while true do
-    draw_home(selected)
-    local _, key = os.pullEvent("key")
-    if key == keys.q then
-      clear()
-      return
-    elseif key == keys.left and selected > 1 then
-      selected = selected - 1
-    elseif key == keys.right and selected < #APPS then
-      selected = selected + 1
-    elseif key == keys.up and selected > 2 then
-      selected = selected - 2
-    elseif key == keys.down and selected + 2 <= #APPS then
-      selected = selected + 2
-    elseif key == keys.enter then
-      local app = APPS[selected]
-      if app.id == "store" then
-        store_loop()
-      elseif app.id == "luma" then
-        if not run_luma() then
-          store_loop()
-        end
-      elseif app.id == "shell" then
+    draw()
+    local event, first, second, third = os.pullEvent()
+    if event == "mouse_click" then
+      local box = hit_at(second, third)
+      if box then
+        handle_action(box.id, box.payload)
+      end
+    elseif event == "mouse_scroll" then
+      if state.view == "store" and state.catalog then
+        state.store_scroll = math.max(0, math.min(math.max(0, #state.catalog - 1), state.store_scroll + first))
+      elseif state.view == "files" then
+        state.file_scroll = math.max(0, state.file_scroll + first)
+      end
+    elseif event == "key" then
+      if first == keys.q then
         clear()
-        open_shell()
-      elseif app.id == "files" then
-        open_files()
+        return
+      elseif first == keys.backspace then
+        if state.modal then
+          state.modal = nil
+        else
+          open_view("home")
+        end
+      elseif first == keys.r and state.view == "store" then
+        refresh_catalog()
       end
     end
   end
 end
 
 local function print_apps()
-  print("Dock Apps")
-  print("  store")
-  print("  shell")
-  print("  files")
-  if luma_installed() then
-    print("  luma")
+  print("DockOS " .. VERSION)
+  for _, app in ipairs(APPS) do
+    local status = "ready"
+    if app.id == "luma" then
+      status = luma_installed() and "installed" or "available"
+    end
+    print(app.id .. "  " .. status)
   end
+end
+
+local function install_by_id(app_id)
+  refresh_catalog()
+  for _, app in ipairs(state.catalog) do
+    if app.id == app_id then
+      install_app(app)
+      return
+    end
+  end
+  print("ERR app not found: " .. tostring(app_id))
 end
 
 local command = args[1] or "home"
 
 if command == "home" or command == "ui" then
-  home_loop()
-elseif command == "store" and args[2] == "install" and args[3] == "luma" then
-  install_by_id("luma")
+  loop("home")
 elseif command == "store" and args[2] == "install" and args[3] then
   install_by_id(args[3])
 elseif command == "store" then
-  store_loop()
+  loop("store")
 elseif command == "apps" then
   print_apps()
 elseif command == "run" and args[2] == "luma" then
@@ -427,5 +738,5 @@ elseif command == "run" and args[2] == "luma" then
 elseif command == "version" then
   print(VERSION)
 else
-  home_loop()
+  loop("home")
 end

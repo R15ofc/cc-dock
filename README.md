@@ -1,6 +1,14 @@
 # DockOS
 
-DockOS is the CC:Tweaked OS layer for the RIG platform.
+DockOS is the Advanced Computer OS layer for the RIG platform.
+
+It is not a text menu. The main UI is mouse-driven and built for color Advanced PCs:
+
+- desktop cards;
+- sidebar navigation;
+- app store cards;
+- modal install windows;
+- file/system panels.
 
 Repositories:
 
@@ -21,6 +29,7 @@ Or from RIG:
 
 ```lua
 rig os install dock
+dock
 ```
 
 ## Commands
@@ -31,6 +40,8 @@ dock store
 dock store install luma
 dock apps
 ```
+
+Dock uses `/rig/devapi/*` automatically when RIG is installed.
 
 ## CC Server PC
 
