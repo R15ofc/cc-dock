@@ -185,4 +185,3 @@ append_shell_path("/bin")
 
 print("OK DockOS installed")
 print("Run: dock")
-print("Install Luma from app store: dock store install luma")

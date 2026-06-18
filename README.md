@@ -1,57 +1,58 @@
 # DockOS
 
-DockOS is the Advanced Computer OS layer for the RIG platform.
-
-It is not a text menu. The main UI is mouse-driven and built for color Advanced PCs:
-
-- Mac-style desktop;
-- bottom dock with pinned apps on the left;
-- `|` separator with open apps on the right;
-- draggable open-app dock order;
-- Finder-style Files with folder/file creation, rename, delete, preview, and open.
-
-Repositories:
-
-- RIG core: `R15ofc/cc-rig`
-- DockOS: `R15ofc/cc-dock`
-- Luma Browser: `R15ofc/cc-luma`
+Standalone OS shell for CC:Tweaked Advanced Computers.
 
 ## Install
 
-From a CC:Tweaked computer:
+Run one command on a CC:Tweaked Advanced Computer:
 
 ```lua
-wget https://raw.githubusercontent.com/R15ofc/cc-dock/main/dock-installer.lua dock-installer.lua
-dock-installer.lua
+wget run https://raw.githubusercontent.com/R15ofc/cc-dock/main/dock-installer.lua
 ```
 
-Or from RIG:
+Then:
 
 ```lua
-rig os install dock
 dock
 ```
+
+## UI
+
+- Mac-style desktop.
+- Bottom dock: pinned apps on the left, `|`, open apps on the right.
+- Multiple windows.
+- Drag windows by the title bar.
+- Fullscreen button on every Dock window.
+- Files app with create folder/file, rename, delete, preview, and open.
+- Settings app for peripherals: DirectGPU, monitor, speaker, printer.
+- Store includes built-in Documents, Paint, and Luma install.
+
+## Apps
+
+- **Files** - Finder-style file manager.
+- **Store** - install/open apps.
+- **Documents** - write documents and print with a connected printer.
+- **Paint** - simple pixel paint app.
+- **Settings** - connect/test displays, speakers, printers, DirectGPU.
+- **Luma** - external browser app, installable from Store.
+- **Terminal** - normal CC shell.
 
 ## Commands
 
 ```lua
 dock
+dock files
 dock store
 dock store install luma
 dock apps
 ```
 
-Dock uses `/rig/devapi/*` automatically when RIG is installed.
-
 ## CC Server PC
 
-Use this on a dedicated CC PC with a modem to serve Dock Store and basic Luma pages over rednet:
+Use this only if you want a dedicated rednet Store/Luma server:
 
 ```lua
-wget https://raw.githubusercontent.com/R15ofc/cc-dock/main/dock-installer.lua dock-installer.lua
-dock-installer.lua --source https://raw.githubusercontent.com/R15ofc/cc-dock/main/cc
+wget run https://raw.githubusercontent.com/R15ofc/cc-dock/main/dock-installer.lua
 dock-server startup install
 dock-server
 ```
-
-The startup hook runs `/startup/dock-server.lua` after reboot.
