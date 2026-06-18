@@ -1,4 +1,4 @@
-local VERSION = "0.6.3"
+local VERSION = "0.7.0"
 local LUMA_INSTALLER_URL = "https://raw.githubusercontent.com/R15ofc/cc-luma/main/luma-installer.lua"
 local LUMA_SOURCE_URL = "https://raw.githubusercontent.com/R15ofc/cc-luma/main/cc"
 local DOCS_DIR = "/dock/documents"
@@ -33,6 +33,7 @@ local THEME = {
 }
 
 local APPS = {
+  launcher = { id = "launcher", name = "Launchpad", icon = "AP", color = colors.lightGray },
   finder = { id = "finder", name = "Files", icon = "FS", color = colors.blue },
   store = { id = "store", name = "Store", icon = "ST", color = colors.cyan },
   docs = { id = "docs", name = "Documents", icon = "DC", color = colors.lightBlue },
@@ -42,7 +43,7 @@ local APPS = {
   terminal = { id = "terminal", name = "Terminal", icon = ">_", color = colors.green },
 }
 
-local PINNED = { "finder", "store", "docs", "paint", "settings", "luma", "terminal" }
+local PINNED = { "launcher", "finder", "store", "docs", "paint", "settings", "luma", "terminal" }
 
 local STORE_APPS = {
   { id = "docs", name = "Documents", trust = "built-in", description = "Write documents and print them." },
@@ -77,6 +78,10 @@ local state = {
   toast = "",
   modal = nil,
   input = nil,
+  system_menu_open = false,
+  terminal_lines = {},
+  terminal_input = "",
+  terminal_cwd = "/",
   directgpu = nil,
   headless = true,
   frame_ops = {},
@@ -323,6 +328,49 @@ end
 
 local function basename(path)
   return tostring(path or ""):match("[^/]+$") or tostring(path or "")
+end
+
+local function normalize_path(path)
+  path = tostring(path or "/")
+  if path == "" then
+    return "/"
+  end
+  local absolute = path:sub(1, 1) == "/"
+  local parts = {}
+  for part in path:gmatch("[^/]+") do
+    if part == ".." then
+      table.remove(parts)
+    elseif part ~= "." and part ~= "" then
+      table.insert(parts, part)
+    end
+  end
+  local normalized = table.concat(parts, "/")
+  if absolute then
+    normalized = "/" .. normalized
+  end
+  if normalized == "" then
+    return absolute and "/" or "."
+  end
+  return normalized
+end
+
+local function resolve_path(path, cwd)
+  path = tostring(path or "")
+  if path == "" then
+    return normalize_path(cwd or "/")
+  end
+  if path:sub(1, 1) == "/" then
+    return normalize_path(path)
+  end
+  return normalize_path(path_join(cwd or "/", path))
+end
+
+local function split_words(text)
+  local words = {}
+  for word in tostring(text or ""):gmatch("%S+") do
+    table.insert(words, word)
+  end
+  return words
 end
 
 local function list_dir(path)
@@ -599,6 +647,153 @@ local function luma_installed()
   return fs.exists("/luma/luma.lua")
 end
 
+local open_app
+
+local function terminal_print(line, color)
+  state.terminal_lines = state.terminal_lines or {}
+  table.insert(state.terminal_lines, { text = tostring(line or ""), color = color or colors.lightGray })
+  while #state.terminal_lines > 160 do
+    table.remove(state.terminal_lines, 1)
+  end
+end
+
+local function terminal_boot()
+  if #state.terminal_lines > 0 then
+    return
+  end
+  terminal_print("DockOS Shell " .. VERSION, colors.cyan)
+  terminal_print("Type 'help' for commands.", colors.lightGray)
+end
+
+local function terminal_list(path)
+  local target = resolve_path(path or state.terminal_cwd, state.terminal_cwd)
+  if not fs.exists(target) then
+    terminal_print("ERR not found: " .. target, colors.red)
+    return
+  end
+  if not fs.isDir(target) then
+    terminal_print(target .. " " .. tostring(fs.getSize(target) or 0) .. "b", colors.white)
+    return
+  end
+  local entries = list_dir(target)
+  if #entries == 0 then
+    terminal_print("(empty)", colors.lightGray)
+    return
+  end
+  local line = ""
+  for _, entry in ipairs(entries) do
+    local token = entry.dir and ("[" .. entry.name .. "]") or entry.name
+    if #line + #token + 2 > 70 then
+      terminal_print(line, colors.white)
+      line = token
+    else
+      line = line == "" and token or (line .. "  " .. token)
+    end
+  end
+  if line ~= "" then
+    terminal_print(line, colors.white)
+  end
+end
+
+local function terminal_cat(path)
+  local target = resolve_path(path or "", state.terminal_cwd)
+  if not fs.exists(target) or fs.isDir(target) then
+    terminal_print("ERR file not found: " .. target, colors.red)
+    return
+  end
+  local body = read_file(target) or ""
+  local count = 0
+  for line in (body .. "\n"):gmatch("(.-)\n") do
+    count = count + 1
+    if count > 12 then
+      terminal_print("... truncated", colors.orange)
+      break
+    end
+    terminal_print(line, colors.white)
+  end
+end
+
+local function terminal_execute(command_line)
+  command_line = tostring(command_line or "")
+  terminal_print("> " .. command_line, colors.white)
+  local words = split_words(command_line)
+  local command = words[1]
+  if not command then
+    return
+  end
+  if command == "help" then
+    terminal_print("help, clear, pwd, ls [path], cd <path>", colors.cyan)
+    terminal_print("cat <file>, mkdir <path>, touch <file>, rm <path>", colors.cyan)
+    terminal_print("open <app>, apps, version, reboot, shutdown", colors.cyan)
+  elseif command == "clear" then
+    state.terminal_lines = {}
+  elseif command == "pwd" then
+    terminal_print(state.terminal_cwd, colors.white)
+  elseif command == "ls" then
+    terminal_list(words[2])
+  elseif command == "cd" then
+    local target = resolve_path(words[2] or "/", state.terminal_cwd)
+    if fs.exists(target) and fs.isDir(target) then
+      state.terminal_cwd = target
+    else
+      terminal_print("ERR directory not found: " .. target, colors.red)
+    end
+  elseif command == "cat" then
+    terminal_cat(words[2])
+  elseif command == "mkdir" then
+    local target = resolve_path(words[2] or "", state.terminal_cwd)
+    if target == "/" or target == "." then
+      terminal_print("ERR invalid path", colors.red)
+    elseif fs.exists(target) then
+      terminal_print("ERR already exists: " .. target, colors.red)
+    else
+      fs.makeDir(target)
+      terminal_print("OK created " .. target, colors.lime)
+    end
+  elseif command == "touch" then
+    local target = resolve_path(words[2] or "", state.terminal_cwd)
+    if target == "/" or target == "." then
+      terminal_print("ERR invalid path", colors.red)
+    else
+      write_file(target, read_file(target) or "")
+      terminal_print("OK wrote " .. target, colors.lime)
+    end
+  elseif command == "rm" then
+    local target = resolve_path(words[2] or "", state.terminal_cwd)
+    if target == "/" or target == "." then
+      terminal_print("ERR refusing to remove root", colors.red)
+    elseif fs.exists(target) then
+      fs.delete(target)
+      terminal_print("OK removed " .. target, colors.lime)
+    else
+      terminal_print("ERR not found: " .. target, colors.red)
+    end
+  elseif command == "apps" then
+    local ids = {}
+    for app_id in pairs(APPS) do
+      table.insert(ids, app_id)
+    end
+    table.sort(ids)
+    terminal_print(table.concat(ids, " "), colors.white)
+  elseif command == "open" then
+    local app_id = words[2]
+    if app_id and APPS[app_id] and open_app then
+      open_app(app_id)
+      terminal_print("OK opened " .. app_id, colors.lime)
+    else
+      terminal_print("ERR app not found", colors.red)
+    end
+  elseif command == "version" then
+    terminal_print(VERSION, colors.white)
+  elseif command == "reboot" then
+    os.reboot()
+  elseif command == "shutdown" then
+    os.shutdown()
+  else
+    terminal_print("ERR unknown command: " .. command, colors.red)
+  end
+end
+
 local function install_luma()
   state.toast = "Downloading Luma"
   draw()
@@ -635,26 +830,25 @@ local function open_luma()
     bring_to_front(store_window.id)
     return
   end
-  add_open_app("luma")
-  clear()
-  if shell then
-    shell.run("/bin/luma.lua")
-  else
-    dofile("/luma/luma.lua")
+  local existing_window = find_window_by_app("luma")
+  if existing_window then
+    bring_to_front(existing_window.id)
+    return
   end
-  remove_open_app_if_unused("luma")
+  create_window("luma", "Luma Browser", 58, 17)
 end
 
 local function open_terminal()
-  add_open_app("terminal")
-  clear()
-  if shell then
-    shell.run("shell")
+  terminal_boot()
+  local existing_window = find_window_by_app("terminal")
+  if existing_window then
+    bring_to_front(existing_window.id)
+    return
   end
-  remove_open_app_if_unused("terminal")
+  create_window("terminal", "Terminal", 58, 17)
 end
 
-local function open_app(app_id)
+function open_app(app_id)
   if app_id == "luma" then
     open_luma()
     return
@@ -671,8 +865,8 @@ local function open_app(app_id)
   if not app then
     return
   end
-  local preferred_width = app_id == "finder" and 58 or app_id == "paint" and 54 or 46
-  local preferred_height = app_id == "finder" and 17 or app_id == "paint" and 18 or 15
+  local preferred_width = app_id == "finder" and 58 or app_id == "paint" and 54 or app_id == "launcher" and 44 or 46
+  local preferred_height = app_id == "finder" and 17 or app_id == "paint" and 18 or app_id == "launcher" and 16 or 15
   create_window(app_id, app.name, preferred_width, preferred_height)
 end
 
@@ -688,6 +882,7 @@ local function draw_menu_bar()
   local screen_width = screen_size()
   fill(1, 1, screen_width, 1, THEME.menubar)
   write_at(2, 1, "DockOS", colors.white, THEME.menubar)
+  add_hit("system_menu_toggle", 1, 1, 8, 1, nil)
   local active_title = "Desktop"
   if state.active_window and state.windows[state.active_window] then
     active_title = state.windows[state.active_window].title
@@ -699,8 +894,29 @@ local function draw_menu_bar()
   end
 end
 
+local function draw_system_menu()
+  if not state.system_menu_open then
+    return
+  end
+  local left = 2
+  local top = 2
+  local width = 24
+  local height = 10
+  fill(left + 1, top + 1, width, height, colors.black)
+  fill(left, top, width, height, THEME.surface)
+  write_at(left + 1, top, "DockOS " .. VERSION, colors.cyan, THEME.surface)
+  draw_button("system_open", left + 1, top + 2, "Launchpad", "launcher", THEME.button)
+  draw_button("system_open", left + 1, top + 3, "Files", "finder", colors.gray)
+  draw_button("system_open", left + 1, top + 4, "Terminal", "terminal", colors.gray)
+  draw_button("system_open", left + 1, top + 5, "Settings", "settings", colors.gray)
+  draw_button("system_about", left + 1, top + 7, "About", nil, colors.purple)
+  draw_button("system_reboot", left + 10, top + 7, "Reboot", nil, colors.orange)
+  draw_button("system_shutdown", left + 1, top + 8, "Shutdown", nil, THEME.danger)
+end
+
 local function draw_desktop()
   local desktop_icons = {
+    { app = "launcher", name = "Apps", icon = "AP" },
     { app = "finder", name = "Computer", icon = "HD" },
     { app = "store", name = "Store", icon = "ST" },
     { app = "docs", name = "Docs", icon = "DC" },
@@ -1221,10 +1437,15 @@ local function draw_settings(window_state)
   cursor_left = cursor_left + draw_button("settings_gpu", cursor_left, top, "Rescan", nil, THEME.button) + 1
   cursor_left = cursor_left + draw_button("settings_monitor", cursor_left, top, "Display", nil, colors.gray) + 1
   cursor_left = cursor_left + draw_button("settings_speaker", cursor_left, top, "Speaker", nil, colors.gray) + 1
-  draw_button("settings_printer", cursor_left, top, "Printer", nil, colors.gray)
+  cursor_left = cursor_left + draw_button("settings_printer", cursor_left, top, "Printer", nil, colors.gray) + 1
+  cursor_left = cursor_left + draw_button("system_reboot", cursor_left, top, "Reboot", nil, colors.orange) + 1
+  draw_button("system_shutdown", cursor_left, top, "Power", nil, THEME.danger)
   write_at(left + 1, top + 2, trim(state.settings_message, width - 2), colors.cyan, THEME.window)
-  write_at(left + 1, top + 4, "Peripherals", colors.white, THEME.window)
-  local row_top = top + 6
+  write_at(left + 1, top + 4, "System", colors.white, THEME.window)
+  write_at(left + 1, top + 5, "DockOS " .. VERSION, colors.lightGray, THEME.window)
+  write_at(left + 1, top + 6, "Screen " .. tostring(state.external.pixel_width) .. "x" .. tostring(state.external.pixel_height), colors.lightGray, THEME.window)
+  write_at(left + 1, top + 8, "Peripherals", colors.white, THEME.window)
+  local row_top = top + 10
   for _, row in ipairs(peripheral_rows()) do
     if row_top >= top + height then
       break
@@ -1235,8 +1456,64 @@ local function draw_settings(window_state)
   end
 end
 
+local function draw_launcher(window_state)
+  local left, top, width, height = content_rect(window_state)
+  write_at(left + 1, top, "Applications", colors.cyan, THEME.window)
+  local apps = {}
+  for app_id, app in pairs(APPS) do
+    table.insert(apps, { id = app_id, app = app })
+  end
+  table.sort(apps, function(left_app, right_app)
+    return left_app.app.name < right_app.app.name
+  end)
+  local row_top = top + 2
+  for _, item in ipairs(apps) do
+    if row_top >= top + height then
+      break
+    end
+    fill(left + 1, row_top, width - 2, 2, THEME.field)
+    fill(left + 1, row_top, 4, 2, item.app.color)
+    write_at(left + 2, row_top, item.app.icon, colors.white, item.app.color)
+    write_at(left + 6, row_top, item.app.name, colors.white, THEME.field)
+    write_at(left + 6, row_top + 1, item.id, colors.lightGray, THEME.field)
+    draw_button("launcher_open", left + width - 9, row_top, "Open", item.id, THEME.button)
+    row_top = row_top + 3
+  end
+end
+
+local function draw_terminal(window_state)
+  terminal_boot()
+  local left, top, width, height = content_rect(window_state)
+  fill(left, top, width, height, THEME.field)
+  local visible_rows = math.max(1, height - 2)
+  local first_line = math.max(1, #state.terminal_lines - visible_rows + 1)
+  local row_top = top
+  for index = first_line, #state.terminal_lines do
+    local line = state.terminal_lines[index]
+    if row_top >= top + visible_rows then
+      break
+    end
+    write_at(left + 1, row_top, trim(line.text, width - 2), line.color or colors.lightGray, THEME.field)
+    row_top = row_top + 1
+  end
+  fill(left, top + height - 1, width, 1, colors.black)
+  write_at(left + 1, top + height - 1, trim(state.terminal_cwd .. " $ " .. state.terminal_input .. "_", width - 2), colors.white, colors.black)
+end
+
+local function draw_luma(window_state)
+  local left, top, width, height = content_rect(window_state)
+  fill(left, top, width, height, THEME.field)
+  write_at(left + 1, top, "Luma Browser", colors.cyan, THEME.field)
+  write_at(left + 1, top + 2, "Integrated web runtime is next.", colors.white, THEME.field)
+  write_at(left + 1, top + 3, "Installed: " .. tostring(luma_installed()), colors.lightGray, THEME.field)
+  write_at(left + 1, top + 5, "For now use Store to install/update Luma files.", colors.lightGray, THEME.field)
+  draw_button("store_open", left + 1, top + height - 2, "Open Store", { id = "store" }, THEME.button)
+end
+
 local function draw_window_content(window_state)
-  if window_state.app == "finder" then
+  if window_state.app == "launcher" then
+    draw_launcher(window_state)
+  elseif window_state.app == "finder" then
     draw_finder(window_state)
   elseif window_state.app == "store" then
     draw_store(window_state)
@@ -1246,6 +1523,10 @@ local function draw_window_content(window_state)
     draw_paint(window_state)
   elseif window_state.app == "settings" then
     draw_settings(window_state)
+  elseif window_state.app == "terminal" then
+    draw_terminal(window_state)
+  elseif window_state.app == "luma" then
+    draw_luma(window_state)
   end
 end
 
@@ -1638,6 +1919,7 @@ function draw()
   draw_desktop()
   draw_windows()
   draw_dock()
+  draw_system_menu()
   draw_toast()
   draw_modal()
   draw_input()
@@ -1655,7 +1937,28 @@ local function handle_action(action, payload, mouse_left, mouse_top)
     finish_input(state.input and state.input.value or "")
   elseif action == "input_cancel" then
     cancel_input()
+  elseif action == "system_menu_toggle" then
+    state.system_menu_open = not state.system_menu_open
+  elseif action == "system_open" then
+    state.system_menu_open = false
+    open_app(payload)
+  elseif action == "system_about" then
+    state.system_menu_open = false
+    set_modal("About DockOS", {
+      "DockOS " .. VERSION,
+      "External Tom GPU desktop",
+      "Screen " .. tostring(state.external.pixel_width) .. "x" .. tostring(state.external.pixel_height),
+    }, {
+      { label = "Close", action = "modal_close", color = THEME.button },
+    })
+  elseif action == "system_reboot" then
+    os.reboot()
+  elseif action == "system_shutdown" then
+    os.shutdown()
   elseif action == "desktop_app" or action == "dock_pinned" then
+    state.system_menu_open = false
+    open_app(payload)
+  elseif action == "launcher_open" then
     open_app(payload)
   elseif action == "dock_open" then
     state.dragging_dock_app = payload
@@ -1807,6 +2110,39 @@ local function normalize_external_event(event, first, second, third, fourth)
   return event, first, second, third
 end
 
+local function active_app()
+  if state.active_window and state.windows[state.active_window] then
+    return state.windows[state.active_window].app
+  end
+  return nil
+end
+
+local function handle_terminal_event(event, first)
+  if active_app() ~= "terminal" or state.input or state.modal then
+    return false
+  end
+  if event == "char" then
+    state.terminal_input = tostring(state.terminal_input or "") .. tostring(first or "")
+    return true
+  elseif event == "paste" then
+    state.terminal_input = tostring(state.terminal_input or "") .. tostring(first or "")
+    return true
+  elseif event == "key" then
+    if first == keys.enter then
+      local command_line = state.terminal_input or ""
+      state.terminal_input = ""
+      terminal_execute(command_line)
+    elseif first == keys.backspace then
+      local value = tostring(state.terminal_input or "")
+      state.terminal_input = value:sub(1, math.max(0, #value - 1))
+    elseif keys.escape and first == keys.escape then
+      state.terminal_input = ""
+    end
+    return true
+  end
+  return false
+end
+
 local function run_loop()
   state.headless = true
   blank_terminal()
@@ -1851,6 +2187,8 @@ local function run_loop()
     elseif event == "key" then
       if handle_input_event(event, first) then
         -- input consumed
+      elseif handle_terminal_event(event, first) then
+        -- terminal consumed
       elseif first == keys.q then
         blank_terminal()
         return
@@ -1868,7 +2206,11 @@ local function run_loop()
         end
       end
     elseif event == "char" or event == "paste" then
-      handle_input_event(event, first)
+      if handle_input_event(event, first) then
+        -- input consumed
+      else
+        handle_terminal_event(event, first)
+      end
     end
   end
 end

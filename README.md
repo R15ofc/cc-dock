@@ -31,6 +31,8 @@ If the hardware is connected after boot, DockOS picks it up automatically.
 
 - Mac-style desktop.
 - External-display first: no UI is drawn on the PC terminal.
+- System menu with About, reboot, shutdown, Files, Settings, Terminal.
+- Launchpad app for opening installed apps.
 - Bottom dock: pinned apps on the left, `|`, open apps on the right.
 - Multiple windows.
 - Drag windows by the title bar.
@@ -42,12 +44,13 @@ If the hardware is connected after boot, DockOS picks it up automatically.
 ## Apps
 
 - **Files** - Finder-style file manager.
+- **Launchpad** - app launcher.
 - **Store** - install/open apps.
 - **Documents** - write documents and print with a connected printer.
 - **Paint** - simple pixel paint app.
 - **Settings** - connect/test displays, speakers, printers, DirectGPU.
-- **Luma** - external browser app, installable from Store.
-- **Terminal** - normal CC shell.
+- **Luma** - browser shell, installable from Store.
+- **Terminal** - DockOS shell with file/app/power commands.
 
 ## Commands
 
@@ -58,6 +61,22 @@ dock store
 dock store install luma
 dock apps
 dock doctor
+```
+
+Terminal commands inside DockOS:
+
+```lua
+help
+apps
+open files
+ls /
+cd /dock
+cat /startup.lua
+mkdir /work
+touch /work/readme.txt
+rm /work/readme.txt
+reboot
+shutdown
 ```
 
 `dock doctor` keeps output on the computer terminal and prints attached peripherals,
