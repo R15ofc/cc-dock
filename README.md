@@ -62,6 +62,8 @@ dock doctor
 
 `dock doctor` keeps output on the computer terminal and prints attached peripherals,
 then sends a visible test pattern to the Tom GPU.
+For Tom bitmap monitors, `Monitor peripheral: none` is normal: the screen is
+controlled through the Tom GPU and confirmed by the reported pixel size.
 
 ## CC Server PC
 

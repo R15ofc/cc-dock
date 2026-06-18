@@ -1,4 +1,4 @@
-local VERSION = "0.6.1"
+local VERSION = "0.6.2"
 local LUMA_INSTALLER_URL = "https://raw.githubusercontent.com/R15ofc/cc-luma/main/luma-installer.lua"
 local LUMA_SOURCE_URL = "https://raw.githubusercontent.com/R15ofc/cc-luma/main/cc"
 local DOCS_DIR = "/dock/documents"
@@ -1488,7 +1488,13 @@ local function scan_external_peripherals()
   local parts = {}
   table.insert(parts, gpu_name and ("GPU " .. gpu_name .. (state.external.gpu_ready and " ready" or " error")) or "GPU waiting")
   table.insert(parts, keyboard_name and ("Keyboard " .. keyboard_name) or "Keyboard waiting")
-  table.insert(parts, monitor_name and ("Monitor " .. monitor_name) or "Monitor waiting")
+  if monitor_name then
+    table.insert(parts, "Monitor " .. monitor_name)
+  elseif gpu_name and state.external.pixel_width > 0 and state.external.pixel_height > 0 then
+    table.insert(parts, "Bitmap screen " .. tostring(state.external.pixel_width) .. "x" .. tostring(state.external.pixel_height))
+  else
+    table.insert(parts, "Monitor waiting")
+  end
   state.settings_message = table.concat(parts, " | ")
 end
 
@@ -1499,6 +1505,12 @@ local function start_peripheral_scan_timer()
 end
 
 local function tom_fill_rect(gpu, left, top, width, height, color)
+  left = math.max(1, math.floor(tonumber(left) or 1))
+  top = math.max(1, math.floor(tonumber(top) or 1))
+  width = math.floor(tonumber(width) or 0)
+  height = math.floor(tonumber(height) or 0)
+  width = math.min(width, math.max(0, state.external.pixel_width - left))
+  height = math.min(height, math.max(0, state.external.pixel_height - top))
   if width <= 0 or height <= 0 then
     return
   end
@@ -1511,6 +1523,8 @@ local function tom_draw_text(gpu, left, top, text, foreground, background)
   if not gpu.drawText then
     return
   end
+  left = math.max(1, math.min(state.external.pixel_width - 1, math.floor(tonumber(left) or 1)))
+  top = math.max(1, math.min(state.external.pixel_height - 1, math.floor(tonumber(top) or 1)))
   local bg = background and color_value(background) or 0
   gpu.drawText(left, top, tostring(text or ""), color_value(foreground or colors.white), bg, 10, 0)
 end
@@ -1525,11 +1539,11 @@ local function render_tom_gpu()
     if gpu.fill then
       gpu.fill(color_value(THEME.desktop))
     elseif gpu.filledRectangle then
-      gpu.filledRectangle(0, 0, state.external.pixel_width, state.external.pixel_height, color_value(THEME.desktop))
+      tom_fill_rect(gpu, 1, 1, state.external.pixel_width - 1, state.external.pixel_height - 1, THEME.desktop)
     end
     for _, op in ipairs(state.frame_ops or {}) do
-      local pixel_left = (op.left - 1) * state.external.cell_width
-      local pixel_top = (op.top - 1) * state.external.cell_height
+      local pixel_left = (op.left - 1) * state.external.cell_width + 1
+      local pixel_top = (op.top - 1) * state.external.cell_height + 1
       if op.kind == "fill" then
         tom_fill_rect(
           gpu,
@@ -1738,8 +1752,8 @@ local function handle_action(action, payload, mouse_left, mouse_top)
 end
 
 local function pixel_to_cell(pixel_left, pixel_top)
-  local left = math.floor((tonumber(pixel_left) or 0) / state.external.cell_width) + 1
-  local top = math.floor((tonumber(pixel_top) or 0) / state.external.cell_height) + 1
+  local left = math.floor(math.max(0, (tonumber(pixel_left) or 1) - 1) / state.external.cell_width) + 1
+  local top = math.floor(math.max(0, (tonumber(pixel_top) or 1) - 1) / state.external.cell_height) + 1
   left = math.max(1, math.min(state.virtual_width, left))
   top = math.max(1, math.min(state.virtual_height, top))
   return left, top
@@ -1913,7 +1927,14 @@ local function run_doctor()
   scan_external_peripherals()
   print("GPU: " .. tostring(state.external.gpu_name or "not found"))
   print("Keyboard: " .. tostring(state.external.keyboard_name or "not found"))
-  print("Monitor: " .. tostring(state.external.monitor_name or "not found"))
+  if state.external.monitor_name then
+    print("Monitor peripheral: " .. tostring(state.external.monitor_name))
+  elseif state.external.gpu_name then
+    print("Monitor peripheral: none")
+    print("Bitmap monitor: via GPU screen, not separate peripheral")
+  else
+    print("Monitor: not found")
+  end
   print("Size: " .. tostring(state.external.pixel_width) .. "x" .. tostring(state.external.pixel_height))
   if state.external.gpu_error then
     print("GPU error: " .. tostring(state.external.gpu_error))
@@ -1932,13 +1953,13 @@ local function run_doctor()
       gpu.fill(0)
     end
     if gpu.filledRectangle then
-      gpu.filledRectangle(0, 0, 180, 80, 0x1C1C1E)
-      gpu.filledRectangle(8, 8, 164, 64, 0x0A84FF)
-      gpu.filledRectangle(14, 14, 152, 52, 0x2C2C2E)
+      tom_fill_rect(gpu, 1, 1, 180, 80, colors.black)
+      gpu.filledRectangle(9, 9, 164, 64, 0x0A84FF)
+      gpu.filledRectangle(15, 15, 152, 52, 0x2C2C2E)
     end
     if gpu.drawText then
-      gpu.drawText(24, 26, "DockOS GPU OK", 0xFFFFFF, 0x2C2C2E, 12, 0)
-      gpu.drawText(24, 44, tostring(state.external.gpu_name), 0x5AC8FA, 0x2C2C2E, 10, 0)
+      gpu.drawText(25, 27, "DockOS GPU OK", 0xFFFFFF, 0x2C2C2E, 12, 0)
+      gpu.drawText(25, 45, tostring(state.external.gpu_name), 0x5AC8FA, 0x2C2C2E, 10, 0)
     end
     if gpu.sync then
       gpu.sync()
