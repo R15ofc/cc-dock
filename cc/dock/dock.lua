@@ -409,7 +409,7 @@ local function wrap_text(text, width)
       if not split_at or split_at < math.floor(width * 0.45) then
         split_at = width
       end
-      table.insert(lines, line:sub(1, split_at):gsub("%s+$", ""))
+      table.insert(lines, (line:sub(1, split_at):gsub("%s+$", "")))
       line = line:sub(split_at + 1):gsub("^%s+", "")
     end
     table.insert(lines, line)
@@ -2477,7 +2477,7 @@ end
 function draw_luma_search(left, top, width, height)
   fill(left, top, width, height, colors.white)
   write_at(left + 2, top + 1, "Luma", colors.purple, colors.white)
-  draw_inline_field(left + 8, top + 1, math.max(10, width - 18), "luma_query", "Search or enter site", colors.black)
+  draw_inline_field(left + 8, top + 1, math.max(10, width - 18), "luma_query", "Anything you Imagine", colors.black)
   draw_button("luma_search", left + width - 8, top + 1, "Go", nil, colors.purple)
   write_at(left + 2, top + 4, "Results for: " .. trim(state.luma_query, math.max(1, width - 17)), colors.black, colors.white)
   fill(left + 2, top + 6, width - 4, 3, colors.lightGray)
@@ -2495,13 +2495,12 @@ function draw_luma_home(left, top, width, height)
   write_at(logo_left, top + 2, "Luma", colors.purple, colors.white)
   local search_width = math.min(44, math.max(16, width - 8))
   local search_left = left + math.max(2, math.floor((width - search_width) / 2))
-  draw_inline_field(search_left, top + 4, search_width, "luma_query", "Search or type luma://creator", colors.black)
+  draw_inline_field(search_left, top + 4, search_width, "luma_query", "Anything you Imagine", colors.black)
   draw_button("luma_search", search_left + math.max(0, search_width - 5), top + 6, "Go", nil, colors.purple)
   write_at(left + 2, top + 9, "Pinned", colors.gray, colors.white)
-  fill(left + 2, top + 10, 18, 4, colors.lightGray)
-  write_at(left + 4, top + 10, "Web Creator", colors.black, colors.lightGray)
-  write_at(left + 4, top + 11, "Build pages", colors.gray, colors.lightGray)
-  draw_button("luma_creator", left + 4, top + 12, "Open", nil, colors.purple)
+  draw_app_icon(left + 2, top + 10, APPS.luma, 4, 3, "luma_creator", nil)
+  draw_app_icon(left + 8, top + 10, APPS.docs, 4, 3, "dock_pinned", "docs")
+  draw_app_icon(left + 14, top + 10, APPS.studio, 4, 3, "dock_pinned", "studio")
 end
 
 function draw_luma(window_state)
