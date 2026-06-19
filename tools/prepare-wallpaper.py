@@ -7,7 +7,7 @@ try:
 except ImportError as exc:
     raise SystemExit("Pillow is required: python3 -m pip install Pillow") from exc
 
-SIZES = [(320, 216), (480, 270), (480, 360), (640, 360), (800, 360), (800, 480), (960, 540)]
+SIZES = [(160, 144), (320, 216), (320, 288), (480, 432), (640, 576)]
 
 
 def cover_resize(image: Image.Image, size: tuple[int, int]) -> Image.Image:
@@ -31,17 +31,11 @@ def main() -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
 
     image = Image.open(source).convert("RGB")
-    fallback = None
     for size in SIZES:
         prepared = cover_resize(image, size)
         output = out_dir / f"wallpaper-{size[0]}x{size[1]}.jpg"
         prepared.save(output, quality=76, optimize=True, progressive=True)
-        fallback = fallback or prepared
         print(output)
-
-    if fallback is not None:
-        fallback.save(out_dir / "wallpaper.jpg", quality=76, optimize=True, progressive=True)
-        print(out_dir / "wallpaper.jpg")
 
 
 if __name__ == "__main__":

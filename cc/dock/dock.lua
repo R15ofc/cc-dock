@@ -1,4 +1,4 @@
-local VERSION = "1.1.2"
+local VERSION = "1.1.3"
 local LUMA_INSTALLER_URL = "https://raw.githubusercontent.com/R15ofc/cc-luma/main/luma-installer.lua"
 local LUMA_SOURCE_URL = "https://raw.githubusercontent.com/R15ofc/cc-luma/main/cc"
 local DOCS_DIR = "/dock/documents"
@@ -1746,7 +1746,7 @@ local function draw_store(window_state)
   local left, top, width, height = content_rect(window_state)
   fill(left, top, width, height, colors.black)
   fill(left + 1, top, width - 2, 3, THEME.field)
-  draw_icon_asset(left + 2, top + 1, 3, 1, "search", "?", colors.lightGray, THEME.field)
+  draw_icon_asset(left + 2, top + 1, 3, 1, "search_tile", "?", colors.lightGray, THEME.field)
   write_at(left + 6, top + 1, trim(state.store_search_query ~= "" and state.store_search_query or "Search apps in Store", width - 16), colors.lightGray, THEME.field)
   draw_button("store_search_prompt", left + width - 10, top + 1, "Search", nil, THEME.button)
 
@@ -1943,7 +1943,7 @@ local function draw_launcher(window_state)
   local left, top, width, height = content_rect(window_state)
   fill(left, top, width, height, colors.black)
   fill(left + 1, top, width - 2, 3, THEME.field)
-  draw_icon_asset(left + 2, top + 1, 3, 1, "search", "?", colors.lightGray, THEME.field)
+  draw_icon_asset(left + 2, top + 1, 3, 1, "search_tile", "?", colors.lightGray, THEME.field)
   write_at(left + 6, top + 1, trim(state.app_search_query ~= "" and state.app_search_query or "Search apps", width - 16), colors.lightGray, THEME.field)
   draw_button("app_search_prompt", left + width - 10, top + 1, "Search", nil, THEME.button)
   if state.app_search_query ~= "" then
@@ -2367,14 +2367,16 @@ local function render_wallpaper(gpu)
     return {
       path_join(ASSETS_DIR, "wallpaper-" .. tostring(screen_width) .. "x" .. tostring(screen_height) .. ".jpg"),
       path_join(ASSETS_DIR, "wallpaper-" .. tostring(screen_width) .. "x" .. tostring(screen_height) .. ".png"),
-      path_join(ASSETS_DIR, "wallpaper-480x360.jpg"),
-      path_join(ASSETS_DIR, "wallpaper-480x360.png"),
-      path_join(ASSETS_DIR, "wallpaper-480x270.jpg"),
-      path_join(ASSETS_DIR, "wallpaper-480x270.png"),
-      path_join(ASSETS_DIR, "wallpaper-640x360.jpg"),
-      path_join(ASSETS_DIR, "wallpaper-640x360.png"),
-      path_join(ASSETS_DIR, "wallpaper-800x360.jpg"),
-      path_join(ASSETS_DIR, "wallpaper-800x360.png"),
+      path_join(ASSETS_DIR, "wallpaper-640x576.jpg"),
+      path_join(ASSETS_DIR, "wallpaper-640x576.png"),
+      path_join(ASSETS_DIR, "wallpaper-480x432.jpg"),
+      path_join(ASSETS_DIR, "wallpaper-480x432.png"),
+      path_join(ASSETS_DIR, "wallpaper-320x288.jpg"),
+      path_join(ASSETS_DIR, "wallpaper-320x288.png"),
+      path_join(ASSETS_DIR, "wallpaper-320x216.jpg"),
+      path_join(ASSETS_DIR, "wallpaper-320x216.png"),
+      path_join(ASSETS_DIR, "wallpaper-160x144.jpg"),
+      path_join(ASSETS_DIR, "wallpaper-160x144.png"),
       path_join(ASSETS_DIR, "wallpaper.jpg"),
       path_join(ASSETS_DIR, "wallpaper.png"),
       "/dock/wallpaper.jpg",
@@ -2556,6 +2558,29 @@ local function render_tom_gpu()
   end)
 end
 
+local function select_boot_logo(gpu, screen_width, screen_height)
+  local candidates = {
+    path_join(ASSETS_DIR, "brand/dock_boot_logo_440.png"),
+    path_join(ASSETS_DIR, "brand/dock_boot_logo_320.png"),
+    path_join(ASSETS_DIR, "brand/dock_boot_logo_220.png"),
+    path_join(ASSETS_DIR, "brand/dock_boot_logo_128.png"),
+    path_join(ASSETS_DIR, "brand/dock_boot_logo.png"),
+  }
+  local max_width = math.floor(screen_width * 0.82)
+  local max_height = math.floor(screen_height * 0.45)
+  for _, path in ipairs(candidates) do
+    local image = load_icon_image(gpu, path)
+    if image then
+      local width = image.getWidth and image.getWidth() or 0
+      local height = image.getHeight and image.getHeight() or 0
+      if width > 0 and height > 0 and width <= max_width and height <= max_height then
+        return image, width, height
+      end
+    end
+  end
+  return nil, 0, 0
+end
+
 local function show_boot_splash()
   local gpu = state.external.gpu
   if not gpu or state.boot_splash_done then
@@ -2564,7 +2589,6 @@ local function show_boot_splash()
   state.boot_splash_done = true
   pcall(function()
     initialize_tom_gpu(false)
-    local logo_path = path_join(ASSETS_DIR, "brand/dock_boot_logo.png")
     for step = 1, 5 do
       local screen_width = state.external.pixel_width
       local screen_height = state.external.pixel_height
@@ -2574,31 +2598,29 @@ local function show_boot_splash()
         tom_fill_rgb(gpu, 1, 1, screen_width, screen_height, rgb_value(0, 0, 0))
       end
 
-      local logo = load_icon_image(gpu, logo_path)
-      local logo_width = logo and logo.getWidth and logo.getWidth() or 0
-      local logo_height = logo and logo.getHeight and logo.getHeight() or 0
-      local logo_left = math.floor((screen_width - logo_width) / 2) + 1
-      local logo_top = math.max(1, math.floor((screen_height - logo_height) / 2) - 22)
-      if logo and logo_width <= screen_width and logo_height <= screen_height and pcall(gpu.drawImage, logo_left, logo_top, logo.ref()) then
-        -- logo drawn
+      local logo, logo_width, logo_height = select_boot_logo(gpu, screen_width, screen_height)
+      local logo_top = math.max(1, math.floor((screen_height - logo_height) / 2) - math.floor(screen_height * 0.08))
+      if logo then
+        local logo_left = math.floor((screen_width - logo_width) / 2) + 1
+        pcall(gpu.drawImage, logo_left, logo_top, logo.ref())
       else
-        local text = "Dock"
-        local text_left = math.max(1, math.floor(screen_width / 2) - 34)
-        local text_top = math.max(1, math.floor(screen_height / 2) - 24)
-        tom_draw_text(gpu, text_left, text_top, text, colors.white, nil)
+        local text_left = math.max(1, math.floor(screen_width / 2) - 18)
+        logo_top = math.max(1, math.floor(screen_height / 2) - 16)
+        tom_draw_text(gpu, text_left, logo_top, "DockOS", colors.white, nil)
+        logo_height = 16
       end
 
-      local bar_width = math.min(180, math.floor(screen_width * 0.48))
-      local bar_height = math.max(3, math.floor(screen_height * 0.014))
+      local bar_width = math.max(48, math.min(180, math.floor(screen_width * 0.42)))
+      local bar_height = math.max(2, math.min(6, math.floor(screen_height * 0.012)))
       local bar_left = math.floor((screen_width - bar_width) / 2) + 1
-      local bar_top = math.min(screen_height - bar_height, math.floor(screen_height / 2) + 48)
+      local bar_top = math.min(screen_height - bar_height, logo_top + logo_height + math.max(10, math.floor(screen_height * 0.06)))
       local progress_width = math.max(1, math.floor(bar_width * step / 5))
       tom_fill_rgb(gpu, bar_left, bar_top, progress_width, bar_height, rgb_value(255, 255, 255))
 
       if gpu.sync then
         gpu.sync()
       end
-      sleep(0.11)
+      sleep(0.08)
     end
   end)
 end

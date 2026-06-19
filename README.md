@@ -26,7 +26,7 @@ DockOS continuously scans for:
 - Tom's Peripherals bitmap monitor / monitor.
 
 If the hardware is connected after boot, DockOS picks it up automatically.
-Recommended screen size for the current UI is at least a `3x5` Tom bitmap monitor wall.
+Supported Tom bitmap monitor walls: `2x3`, `2x4`, `3x6`, `4x8`; `1x2` has a compact fallback.
 
 ## UI
 
@@ -90,7 +90,7 @@ shutdown
 ## Wallpaper Assets
 
 DockOS loads real image files from `/dock/assets`, not a Lua-drawn fake wallpaper.
-Best match for a `3x5` Tom bitmap monitor is usually `wallpaper-480x360.jpg`.
+Built-in wallpaper assets include exact sizes for `2x3`, `2x4`, `3x6`, and `4x8` Tom bitmap monitor walls, plus a compact `1x2` fallback.
 Use a direct raw image URL, not a normal web page URL.
 
 Prepare assets on your computer:
@@ -102,7 +102,7 @@ python3 tools/prepare-wallpaper.py /path/to/photo.jpg --out assets
 Then push the generated files or install a raw image directly in Minecraft:
 
 ```lua
-dock wallpaper https://example.com/wallpaper-480x360.jpg
+dock wallpaper https://example.com/wallpaper-320x216.jpg
 ```
 
 `dock doctor` keeps output on the computer terminal and prints attached peripherals,

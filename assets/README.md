@@ -2,8 +2,9 @@
 
 Default visual release assets live here.
 
-- Wallpaper assets are resized JPEG versions of the provided Pexels image.
-- App icons are generated from Google Material Icons.
+- Boot logo assets are generated from `DockOsLogoShort.png` and installed as fixed PNG sizes.
+- Wallpaper assets are exact-fit JPEG/PNG versions of the Pexels release wallpaper.
+- Tile app icons are installed as opaque PNGs for Tom GPU rendering.
 
 Use:
 
@@ -11,13 +12,10 @@ Use:
 python3 tools/prepare-wallpaper.py /path/to/photo.jpg --out assets
 ```
 
-Generated wallpaper files are optional for the installer, but DockOS will use them when present:
+Generated wallpaper files match the supported Tom bitmap monitor walls:
 
-- `wallpaper-320x216.jpg`
-- `wallpaper-480x270.jpg`
-- `wallpaper-480x360.jpg`
-- `wallpaper-640x360.jpg`
-- `wallpaper-800x360.jpg`
-- `wallpaper-800x480.jpg`
-- `wallpaper-960x540.jpg`
-- `wallpaper.jpg`
+- `wallpaper-160x144.jpg` / `.png` - compact `1x2` fallback
+- `wallpaper-320x216.jpg` / `.png` - `2x3`
+- `wallpaper-320x288.jpg` / `.png` - `2x4`
+- `wallpaper-480x432.jpg` / `.png` - `3x6`
+- `wallpaper-640x576.jpg` / `.png` - `4x8`
