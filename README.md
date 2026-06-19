@@ -30,17 +30,17 @@ Supported Tom bitmap monitor walls: `2x3`, `2x4`, `3x6`, `4x8`; `1x2` has a comp
 
 ## UI
 
-- Windows-style desktop shell with a full-width bottom taskbar.
+- Linux-style desktop shell with top panel, left dock, Activities overview, and app grid.
 - External-display first: no UI is drawn on the PC terminal.
-- Start menu opens from the taskbar and includes Apps, Files, Store, Terminal, Settings, About, reboot, and shutdown.
-- Search box on the taskbar opens app search.
+- Activities opens from the top panel or dock and includes app search, app grid, About, reboot, and shutdown.
+- Search lives inside Activities and the Applications window.
 - Real PNG wallpaper loading through Tom GPU `decodeImage`/`drawImage`.
 - Default Pexels mountain wallpaper assets are installed into `/dock/assets`.
 - App icons are generated from Google Material Icons.
 - Minimal black boot splash with centered white Dock logo and white loading bar.
 - High-resolution Tom GPU renderer with square opaque surfaces and strict Z-order.
-- Square app windows with colored title bars, close, fullscreen, focus, and drag.
-- Pinned taskbar apps plus open-app indicators.
+- Linux-style app windows with dark header bars, close, minimize, fullscreen, focus, and drag.
+- Pinned left-dock apps plus open-app indicators.
 - Files app with create folder/file, rename, delete, preview, and open.
 - Store has search, popular square app cards, and compact app rows.
 - Docs uses a white page workspace, orange File menu, wrapping preview, print, and edit.
