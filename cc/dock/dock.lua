@@ -2821,18 +2821,6 @@ local function select_boot_logo(gpu, screen_width, screen_height)
       end
     end
   end
-  for _, candidate in ipairs(candidates) do
-    if fs.exists(candidate.path) and not fs.isDir(candidate.path) then
-      local image = load_icon_image(gpu, candidate.path)
-    if image then
-      local width = image.getWidth and image.getWidth() or candidate.width
-      local height = image.getHeight and image.getHeight() or candidate.height
-      if width > 0 and height > 0 and width <= max_width and height <= max_height then
-        return image, width, height
-      end
-    end
-    end
-  end
   return nil, 0, 0
 end
 
