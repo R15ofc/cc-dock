@@ -34,7 +34,7 @@ Recommended screen size for the current UI is at least a `3x5` Tom bitmap monito
 - External-display first: no UI is drawn on the PC terminal.
 - Real PNG wallpaper loading through Tom GPU `decodeImage`/`drawImage`.
 - Release boot splash.
-- High-resolution Tom GPU renderer with glass menu/dock and rounded windows.
+- High-resolution Tom GPU renderer with square opaque surfaces and strict Z-order.
 - System menu with About, reboot, shutdown, Files, Settings, Terminal.
 - Launchpad app for opening installed apps.
 - Bottom dock: pinned apps on the left, `|`, open apps on the right.
@@ -65,6 +65,7 @@ dock store
 dock store install luma
 dock apps
 dock doctor
+dock doctor 3d
 dock wallpaper <raw_png_or_jpg_url>
 ```
 
@@ -88,6 +89,7 @@ shutdown
 
 DockOS loads real image files from `/dock/assets`, not a Lua-drawn fake wallpaper.
 Best match for a `3x5` Tom bitmap monitor is usually `wallpaper-480x360.png`.
+Use a direct raw image URL, not a normal web page URL.
 
 Prepare assets on your computer:
 
