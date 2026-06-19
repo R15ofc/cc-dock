@@ -10,13 +10,16 @@ local FILES = {
   { source = "startup/dock-server.lua", target = "/startup/dock-server.lua" },
 }
 
+local WALLPAPER_ASSETS = {
+  { source = "wallpaper-160x144.png", target = "/dock/assets/wallpaper-160x144.png", width = 160, height = 144, binary = true },
+  { source = "wallpaper-320x216.png", target = "/dock/assets/wallpaper-320x216.png", width = 320, height = 216, binary = true },
+  { source = "wallpaper-382x192.png", target = "/dock/assets/wallpaper-382x192.png", width = 382, height = 192, binary = true },
+  { source = "wallpaper-320x288.png", target = "/dock/assets/wallpaper-320x288.png", width = 320, height = 288, binary = true },
+  { source = "wallpaper-480x432.png", target = "/dock/assets/wallpaper-480x432.png", width = 480, height = 432, binary = true },
+  { source = "wallpaper-640x576.png", target = "/dock/assets/wallpaper-640x576.png", width = 640, height = 576, binary = true },
+}
+
 local OPTIONAL_ASSETS = {
-  { source = "wallpaper-160x144.png", target = "/dock/assets/wallpaper-160x144.png", binary = true },
-  { source = "wallpaper-320x216.png", target = "/dock/assets/wallpaper-320x216.png", binary = true },
-  { source = "wallpaper-382x192.png", target = "/dock/assets/wallpaper-382x192.png", binary = true },
-  { source = "wallpaper-320x288.png", target = "/dock/assets/wallpaper-320x288.png", binary = true },
-  { source = "wallpaper-480x432.png", target = "/dock/assets/wallpaper-480x432.png", binary = true },
-  { source = "wallpaper-640x576.png", target = "/dock/assets/wallpaper-640x576.png", binary = true },
   { source = "brand/dock_boot_logo.png", target = "/dock/assets/brand/dock_boot_logo.png", binary = true },
   { source = "brand/dock_boot_logo_128.png", target = "/dock/assets/brand/dock_boot_logo_128.png", binary = true },
   { source = "brand/dock_boot_logo_220.png", target = "/dock/assets/brand/dock_boot_logo_220.png", binary = true },
@@ -36,6 +39,12 @@ local OPTIONAL_ASSETS = {
   { source = "icons/search_tile.png", target = "/dock/assets/icons/search_tile.png", binary = true },
 }
 local LEGACY_ASSETS = {
+  "/dock/assets/wallpaper-160x144.png",
+  "/dock/assets/wallpaper-320x216.png",
+  "/dock/assets/wallpaper-320x288.png",
+  "/dock/assets/wallpaper-382x192.png",
+  "/dock/assets/wallpaper-480x432.png",
+  "/dock/assets/wallpaper-640x576.png",
   "/dock/assets/wallpaper-160x144.jpg",
   "/dock/assets/wallpaper-320x216.jpg",
   "/dock/assets/wallpaper-320x288.jpg",
@@ -150,16 +159,17 @@ local function write_chunk(handle, chunk)
   if chunk == nil then
     return true
   end
-  if type(chunk) == "number" then
-    handle.write(string.char(chunk))
-  elseif type(chunk) == "table" then
-    for _, byte in ipairs(chunk) do
-      handle.write(string.char(byte))
+  return pcall(function()
+    if type(chunk) == "number" then
+      handle.write(string.char(chunk))
+    elseif type(chunk) == "table" then
+      for _, byte in ipairs(chunk) do
+        handle.write(string.char(byte))
+      end
+    else
+      handle.write(chunk)
     end
-  else
-    handle.write(chunk)
-  end
-  return true
+  end)
 end
 
 local function download_file(url, target, binary)
@@ -189,7 +199,15 @@ local function download_file(url, target, binary)
     if chunk == nil then
       break
     end
-    write_chunk(output, chunk)
+    local wrote, write_err = write_chunk(output, chunk)
+    if not wrote then
+      output.close()
+      input.close()
+      if fs.exists(target) then
+        fs.delete(target)
+      end
+      return nil, tostring(write_err or "write failed")
+    end
   end
   output.close()
   input.close()
@@ -228,7 +246,58 @@ local function install_startup()
   return write_file("/startup.lua", replace_block(read_file("/startup.lua") or ""))
 end
 
+local function detect_gpu_size()
+  if not peripheral or not peripheral.getNames or not peripheral.wrap then
+    return 382, 192
+  end
+  for _, name in ipairs(peripheral.getNames()) do
+    local device = peripheral.wrap(name)
+    if device and type(device.getSize) == "function" and (type(device.refreshSize) == "function" or type(device.filledRectangle) == "function" or type(device.drawImage) == "function") then
+      pcall(function()
+        if device.refreshSize then
+          device.refreshSize()
+        end
+        if device.setSize then
+          device.setSize(64)
+        end
+      end)
+      local ok, width, height = pcall(function()
+        return device.getSize()
+      end)
+      if ok and type(width) == "number" and type(height) == "number" and width > 0 and height > 0 then
+        return math.floor(width), math.floor(height)
+      end
+    end
+  end
+  return 382, 192
+end
+
+local function select_wallpaper_asset()
+  local width, height = detect_gpu_size()
+  for _, file in ipairs(WALLPAPER_ASSETS) do
+    if file.width == width and file.height == height then
+      return file, width, height
+    end
+  end
+  local selected = WALLPAPER_ASSETS[3]
+  for _, file in ipairs(WALLPAPER_ASSETS) do
+    if file.width <= width and file.height <= height and file.width * file.height > selected.width * selected.height then
+      selected = file
+    end
+  end
+  return selected, width, height
+end
+
+local function cleanup_legacy_assets()
+  for _, path in ipairs(LEGACY_ASSETS) do
+    if fs.exists(path) then
+      fs.delete(path)
+    end
+  end
+end
+
 local function install_files(source_url, asset_url)
+  cleanup_legacy_assets()
   if fs.exists(TEMP_DIR) then
     fs.delete(TEMP_DIR)
   end
@@ -260,15 +329,23 @@ local function install_files(source_url, asset_url)
     fs.move(temp_path(file.target), file.target)
   end
 
-  for _, path in ipairs(LEGACY_ASSETS) do
-    if fs.exists(path) then
-      fs.delete(path)
+  cleanup_legacy_assets()
+
+  local wallpaper, detected_width, detected_height = select_wallpaper_asset()
+  if wallpaper then
+    print("DockOS wallpaper " .. wallpaper.source .. " for " .. tostring(detected_width) .. "x" .. tostring(detected_height))
+    local ok, err = download_file(join_url(asset_url, wallpaper.source), temp_path(wallpaper.target), wallpaper.binary)
+    if ok then
+      ensure_parent(wallpaper.target)
+      fs.move(temp_path(wallpaper.target), wallpaper.target)
+    else
+      print("Skip wallpaper: " .. tostring(err))
     end
   end
 
   for _, file in ipairs(OPTIONAL_ASSETS) do
     print("DockOS asset " .. file.source)
-    local ok = download_file(join_url(asset_url, file.source), temp_path(file.target), file.binary)
+    local ok, err = download_file(join_url(asset_url, file.source), temp_path(file.target), file.binary)
     if ok then
       if fs.exists(file.target) then
         fs.delete(file.target)
@@ -276,7 +353,7 @@ local function install_files(source_url, asset_url)
       ensure_parent(file.target)
       fs.move(temp_path(file.target), file.target)
     else
-      print("Skip optional asset")
+      print("Skip optional asset: " .. tostring(err))
     end
   end
 
