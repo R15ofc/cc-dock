@@ -1,10 +1,12 @@
-local VERSION = "0.8.0"
+local VERSION = "0.9.0"
 local LUMA_INSTALLER_URL = "https://raw.githubusercontent.com/R15ofc/cc-luma/main/luma-installer.lua"
 local LUMA_SOURCE_URL = "https://raw.githubusercontent.com/R15ofc/cc-luma/main/cc"
 local DOCS_DIR = "/dock/documents"
 local PAINT_DIR = "/dock/paintings"
+local ASSETS_DIR = "/dock/assets"
 
 local args = { ... }
+local unpacker = table.unpack or unpack
 
 local DEFAULT_EXTERNAL_WIDTH = 80
 local DEFAULT_EXTERNAL_HEIGHT = 30
@@ -83,6 +85,9 @@ local state = {
   terminal_input = "",
   terminal_cwd = "/",
   boot_splash_done = false,
+  wallpaper = nil,
+  wallpaper_key = nil,
+  wallpaper_error = nil,
   directgpu = nil,
   headless = true,
   frame_ops = {},
@@ -282,9 +287,9 @@ local function ensure_parent(path)
   end
 end
 
-local function write_file(path, data)
+local function write_file(path, data, binary)
   ensure_parent(path)
-  local handle = fs.open(path, "w")
+  local handle = fs.open(path, binary and "wb" or "w") or fs.open(path, "w")
   if not handle then
     return nil, "cannot open " .. path
   end
@@ -304,6 +309,57 @@ local function read_file(path)
   local data = handle.readAll()
   handle.close()
   return data or ""
+end
+
+local function write_buffer_chunk(buffer, chunk)
+  if #chunk == 0 then
+    return true
+  end
+  return pcall(function()
+    buffer.write(unpacker(chunk))
+  end)
+end
+
+local function read_binary_into_gpu_buffer(gpu, path)
+  if not gpu.newBuffer or not fs.exists(path) or fs.isDir(path) then
+    return nil, "missing image buffer support or file"
+  end
+  local file_size = fs.getSize(path) or 32
+  local ok, buffer = pcall(gpu.newBuffer, math.max(32, file_size))
+  if not ok or not buffer then
+    return nil, buffer or "newBuffer failed"
+  end
+
+  local handle = fs.open(path, "rb") or fs.open(path, "r")
+  if not handle then
+    return nil, "cannot open " .. path
+  end
+
+  local chunk = {}
+  while true do
+    local byte = handle.read()
+    if byte == nil then
+      break
+    end
+    if type(byte) == "string" then
+      byte = byte:byte(1)
+    end
+    table.insert(chunk, byte)
+    if #chunk >= 512 then
+      local wrote, err = write_buffer_chunk(buffer, chunk)
+      if not wrote then
+        handle.close()
+        return nil, err
+      end
+      chunk = {}
+    end
+  end
+  handle.close()
+  local wrote, err = write_buffer_chunk(buffer, chunk)
+  if not wrote then
+    return nil, err
+  end
+  return buffer
 end
 
 local function path_join(base_path, child)
@@ -401,7 +457,7 @@ local function download(url)
   if not http then
     return nil, "HTTP API is disabled"
   end
-  local handle, err = http.get(url, { ["Accept"] = "text/plain" })
+  local handle, err = http.get(url, { ["Accept"] = "*/*" })
   if not handle then
     return nil, err or "request failed"
   end
@@ -650,6 +706,27 @@ end
 
 local open_app
 
+local function install_wallpaper_url(url)
+  if not url or url == "" then
+    return nil, "missing wallpaper URL"
+  end
+  local body, err = download(url)
+  if not body then
+    return nil, err or "download failed"
+  end
+  local ok, write_err = write_file(path_join(ASSETS_DIR, "wallpaper.png"), body, true)
+  if not ok then
+    return nil, write_err
+  end
+  if state.wallpaper and state.wallpaper.free then
+    pcall(state.wallpaper.free)
+  end
+  state.wallpaper = nil
+  state.wallpaper_key = nil
+  state.wallpaper_error = nil
+  return true
+end
+
 local function terminal_print(line, color)
   state.terminal_lines = state.terminal_lines or {}
   table.insert(state.terminal_lines, { text = tostring(line or ""), color = color or colors.lightGray })
@@ -725,7 +802,8 @@ local function terminal_execute(command_line)
   if command == "help" then
     terminal_print("help, clear, pwd, ls [path], cd <path>", colors.cyan)
     terminal_print("cat <file>, mkdir <path>, touch <file>, rm <path>", colors.cyan)
-    terminal_print("open <app>, apps, version, reboot, shutdown", colors.cyan)
+    terminal_print("open <app>, apps, wallpaper <url>, version", colors.cyan)
+    terminal_print("reboot, shutdown", colors.cyan)
   elseif command == "clear" then
     state.terminal_lines = {}
   elseif command == "pwd" then
@@ -776,6 +854,13 @@ local function terminal_execute(command_line)
     end
     table.sort(ids)
     terminal_print(table.concat(ids, " "), colors.white)
+  elseif command == "wallpaper" then
+    local ok, err = install_wallpaper_url(words[2])
+    if ok then
+      terminal_print("OK wallpaper installed", colors.lime)
+    else
+      terminal_print("ERR wallpaper: " .. tostring(err), colors.red)
+    end
   elseif command == "open" then
     local app_id = words[2]
     if app_id and APPS[app_id] and open_app then
@@ -926,9 +1011,8 @@ local function draw_desktop()
   local left = 3
   local top = 3
   for _, item in ipairs(desktop_icons) do
-    fill(left, top, 10, 3, colors.black)
-    write_at(left + 3, top, item.icon, colors.white, colors.black)
-    write_at(left, top + 1, trim(item.name, 10), colors.lightGray, colors.black)
+    write_at(left + 3, top, item.icon, colors.white, nil)
+    write_at(left, top + 1, trim(item.name, 10), colors.white, nil)
     add_hit("desktop_app", left, top, 10, 3, item.app)
     top = top + 4
   end
@@ -1445,8 +1529,9 @@ local function draw_settings(window_state)
   write_at(left + 1, top + 4, "System", colors.white, THEME.window)
   write_at(left + 1, top + 5, "DockOS " .. VERSION, colors.lightGray, THEME.window)
   write_at(left + 1, top + 6, "Screen " .. tostring(state.external.pixel_width) .. "x" .. tostring(state.external.pixel_height), colors.lightGray, THEME.window)
-  write_at(left + 1, top + 8, "Peripherals", colors.white, THEME.window)
-  local row_top = top + 10
+  write_at(left + 1, top + 7, "Wallpaper " .. (state.wallpaper and "image" or tostring(state.wallpaper_error or "waiting")), colors.lightGray, THEME.window)
+  write_at(left + 1, top + 9, "Peripherals", colors.white, THEME.window)
+  local row_top = top + 11
   for _, row in ipairs(peripheral_rows()) do
     if row_top >= top + height then
       break
@@ -1865,59 +1950,74 @@ local function tom_draw_text(gpu, left, top, text, foreground, background)
 end
 
 local function render_wallpaper(gpu)
-  local screen_width = state.external.pixel_width
-  local screen_height = state.external.pixel_height
-  local sky_height = math.floor(screen_height * 0.55)
-  local band_height = math.max(2, math.floor(screen_height / 42))
-
-  for y = 1, sky_height, band_height do
-    local amount = math.min(1, y / sky_height)
-    local color = lerp_rgb({ 116, 187, 216 }, { 226, 240, 238 }, amount)
-    tom_fill_rgb(gpu, 1, y, screen_width - 1, band_height + 1, color)
+  local function wallpaper_candidates()
+    local screen_width = state.external.pixel_width
+    local screen_height = state.external.pixel_height
+    return {
+      path_join(ASSETS_DIR, "wallpaper-" .. tostring(screen_width) .. "x" .. tostring(screen_height) .. ".png"),
+      path_join(ASSETS_DIR, "wallpaper-480x360.png"),
+      path_join(ASSETS_DIR, "wallpaper.png"),
+      "/dock/wallpaper.png",
+    }
   end
 
-  local cloud_color = rgb_value(238, 246, 245)
-  local cloud_shadow = rgb_value(181, 207, 211)
-  local function cloud(x, y, width, height)
-    tom_round_rect(gpu, x + math.floor(width * 0.12), y + math.floor(height * 0.38), math.floor(width * 0.7), math.floor(height * 0.34), math.floor(height * 0.2), cloud_shadow)
-    tom_round_rect(gpu, x, y + math.floor(height * 0.28), math.floor(width * 0.38), math.floor(height * 0.38), math.floor(height * 0.18), cloud_color)
-    tom_round_rect(gpu, x + math.floor(width * 0.24), y, math.floor(width * 0.34), math.floor(height * 0.54), math.floor(height * 0.25), cloud_color)
-    tom_round_rect(gpu, x + math.floor(width * 0.5), y + math.floor(height * 0.18), math.floor(width * 0.5), math.floor(height * 0.42), math.floor(height * 0.2), cloud_color)
-  end
-  cloud(math.floor(screen_width * 0.18), math.floor(screen_height * 0.12), math.floor(screen_width * 0.28), math.floor(screen_height * 0.11))
-  cloud(math.floor(screen_width * 0.62), math.floor(screen_height * 0.16), math.floor(screen_width * 0.3), math.floor(screen_height * 0.1))
-
-  local mountain_top = math.floor(screen_height * 0.34)
-  local mountain_bottom = math.floor(screen_height * 0.66)
-  for y = mountain_top, mountain_bottom, 2 do
-    local amount = (y - mountain_top) / math.max(1, mountain_bottom - mountain_top)
-    local left_edge = math.floor(screen_width * 0.02 + amount * screen_width * 0.18)
-    local right_edge = math.floor(screen_width * 0.98 - amount * screen_width * 0.14)
-    tom_fill_rgb(gpu, left_edge, y, right_edge - left_edge, 3, lerp_rgb({ 43, 91, 105 }, { 90, 128, 127 }, amount))
-  end
-  for y = mountain_top + math.floor(screen_height * 0.05), mountain_bottom, 2 do
-    local amount = (y - mountain_top) / math.max(1, mountain_bottom - mountain_top)
-    local left_edge = math.floor(screen_width * 0.22 + amount * screen_width * 0.08)
-    local right_edge = math.floor(screen_width * 0.82 - amount * screen_width * 0.05)
-    tom_fill_rgb(gpu, left_edge, y, right_edge - left_edge, 3, lerp_rgb({ 22, 67, 72 }, { 74, 109, 98 }, amount))
-  end
-
-  local hill_top = math.floor(screen_height * 0.52)
-  for y = hill_top, screen_height, 2 do
-    local amount = (y - hill_top) / math.max(1, screen_height - hill_top)
-    local inset = math.floor((1 - amount) * screen_width * 0.42)
-    local color = lerp_rgb({ 74, 148, 53 }, { 116, 168, 48 }, amount)
-    tom_fill_rgb(gpu, inset + 1, y, screen_width - inset * 2 - 1, 3, color)
-  end
-
-  for index = 0, 18 do
-    local x = math.floor(screen_width * (0.08 + index * 0.045))
-    local y = math.floor(screen_height * (0.56 + (index % 4) * 0.025))
-    tom_fill_rgb(gpu, x, y, 2, math.floor(screen_height * 0.08), rgb_value(28, 84, 48))
-    tom_round_rect(gpu, x - 3, y - 6, 8, 12, 4, rgb_value(27, 101, 56))
+  local function load_wallpaper()
+    if not gpu.decodeImage or not gpu.drawImage then
+      state.wallpaper_error = "GPU decodeImage/drawImage unavailable"
+      return nil
+    end
+    local screen_key = tostring(state.external.gpu_name) .. ":" .. tostring(state.external.pixel_width) .. "x" .. tostring(state.external.pixel_height)
+    for _, path in ipairs(wallpaper_candidates()) do
+      if fs.exists(path) and not fs.isDir(path) then
+        local key = screen_key .. ":" .. path .. ":" .. tostring(fs.getSize(path) or 0)
+        if state.wallpaper and state.wallpaper_key == key then
+          return state.wallpaper
+        end
+        if state.wallpaper and state.wallpaper.free then
+          pcall(state.wallpaper.free)
+        end
+        local buffer, buffer_err = read_binary_into_gpu_buffer(gpu, path)
+        if not buffer then
+          state.wallpaper_error = tostring(buffer_err)
+          return nil
+        end
+        local ok, image = pcall(function()
+          return gpu.decodeImage(buffer.ref())
+        end)
+        pcall(buffer.free)
+        if ok and image then
+          state.wallpaper = image
+          state.wallpaper_key = key
+          state.wallpaper_error = nil
+          return image
+        end
+        state.wallpaper_error = tostring(image)
+        return nil
+      end
+    end
+    state.wallpaper_error = "missing /dock/assets/wallpaper*.png"
+    return nil
   end
 
-  tom_fill_rgb(gpu, 1, screen_height - 22, screen_width - 1, 22, rgb_value(87, 135, 37))
+  local image = load_wallpaper()
+  if image then
+    local image_width = image.getWidth and image.getWidth() or state.external.pixel_width
+    local image_height = image.getHeight and image.getHeight() or state.external.pixel_height
+    local left = math.floor((state.external.pixel_width - image_width) / 2) + 1
+    local top = math.floor((state.external.pixel_height - image_height) / 2) + 1
+    if image_width < state.external.pixel_width or image_height < state.external.pixel_height then
+      gpu.fill(rgb_value(10, 15, 18))
+    end
+    local ok = pcall(gpu.drawImage, left, top, image.ref())
+    if ok then
+      return
+    end
+  end
+
+  if gpu.fill then
+    gpu.fill(rgb_value(10, 15, 18))
+    return
+  end
 end
 
 local function render_glass_chrome(gpu)
@@ -1928,21 +2028,6 @@ local function render_glass_chrome(gpu)
 
   tom_round_rect(gpu, 1, 1, screen_width - 1, cell_height + 5, 0, rgb_value(41, 54, 63))
   tom_fill_rgb(gpu, 1, cell_height + 5, screen_width - 1, 1, rgb_value(255, 255, 255))
-
-  for _, window_id in ipairs(state.window_order) do
-    local window_state = state.windows[window_id]
-    if window_state then
-      local left = (window_state.left - 1) * cell_width + 1
-      local top = (window_state.top - 1) * cell_height + 1
-      local width = window_state.width * cell_width
-      local height = window_state.height * cell_height
-      local active = window_state.id == state.active_window
-      tom_round_rect(gpu, left + 5, top + 6, width, height, 10, rgb_value(14, 20, 25))
-      tom_round_rect(gpu, left, top, width, height, 10, active and rgb_value(35, 43, 52) or rgb_value(45, 49, 56))
-      tom_round_rect(gpu, left + 1, top + 1, width - 2, cell_height + 8, 9, active and rgb_value(218, 224, 231) or rgb_value(110, 119, 130))
-      tom_fill_rgb(gpu, left + 1, top + cell_height + 2, width - 2, 1, rgb_value(255, 255, 255))
-    end
-  end
 
   local dock_top = state.virtual_height - 2
   local total_width = math.min(state.virtual_width - 2, dock_width())
@@ -1978,6 +2063,40 @@ local function should_skip_highres_op(op)
   return false
 end
 
+local function render_highres_op(gpu, op)
+  if op.kind ~= "fill" then
+    return false
+  end
+
+  local cell_width = state.external.cell_width
+  local cell_height = state.external.cell_height
+  local pixel_left = (op.left - 1) * cell_width + 1
+  local pixel_top = (op.top - 1) * cell_height + 1
+  local pixel_width = op.width * cell_width
+  local pixel_height = op.height * cell_height
+
+  if op.background == THEME.window and op.width >= 16 and op.height >= 5 then
+    tom_round_rect(gpu, pixel_left + 5, pixel_top + 6, pixel_width, pixel_height, 12, rgb_value(8, 12, 16))
+    tom_round_rect(gpu, pixel_left, pixel_top, pixel_width, pixel_height, 12, rgb_value(28, 33, 39))
+    return true
+  end
+
+  if (op.background == THEME.window_title or op.background == THEME.window_inactive) and op.height == 1 then
+    local active = op.background == THEME.window_title
+    tom_round_rect(gpu, pixel_left + 1, pixel_top + 1, pixel_width - 2, cell_height + 7, 11, active and rgb_value(232, 236, 240) or rgb_value(120, 128, 136))
+    tom_fill_rgb(gpu, pixel_left + 1, pixel_top + cell_height + 2, pixel_width - 2, 1, active and rgb_value(255, 255, 255) or rgb_value(150, 158, 166))
+    return true
+  end
+
+  if op.background == THEME.surface and op.width >= 20 and op.height >= 5 then
+    tom_round_rect(gpu, pixel_left + 4, pixel_top + 5, pixel_width, pixel_height, 12, rgb_value(8, 12, 16))
+    tom_round_rect(gpu, pixel_left, pixel_top, pixel_width, pixel_height, 12, rgb_value(45, 52, 59))
+    return true
+  end
+
+  return false
+end
+
 local function render_tom_gpu()
   local gpu = state.external.gpu
   if not state.headless or not gpu then
@@ -1988,7 +2107,9 @@ local function render_tom_gpu()
     render_wallpaper(gpu)
     render_glass_chrome(gpu)
     for _, op in ipairs(state.frame_ops or {}) do
-      if should_skip_highres_op(op) then
+      if render_highres_op(gpu, op) then
+        -- high resolution replacement drawn in exact stack order
+      elseif should_skip_highres_op(op) then
         -- high resolution wallpaper/chrome already drew this surface
       else
       local pixel_left = (op.left - 1) * state.external.cell_width + 1
@@ -2484,6 +2605,11 @@ local function run_doctor()
     print("Monitor: not found")
   end
   print("Size: " .. tostring(state.external.pixel_width) .. "x" .. tostring(state.external.pixel_height))
+  if state.external.gpu then
+    pcall(render_wallpaper, state.external.gpu)
+  end
+  print("Image API: decode=" .. tostring(state.external.gpu and state.external.gpu.decodeImage ~= nil) .. " draw=" .. tostring(state.external.gpu and state.external.gpu.drawImage ~= nil))
+  print("Wallpaper: " .. (state.wallpaper and "loaded" or tostring(state.wallpaper_error or "not loaded yet")))
   if state.external.gpu_error then
     print("GPU error: " .. tostring(state.external.gpu_error))
   end
@@ -2536,6 +2662,13 @@ elseif command == "files" then
   run_loop()
 elseif command == "apps" then
   print_apps()
+elseif command == "wallpaper" and args[2] then
+  local ok, err = install_wallpaper_url(args[2])
+  if ok then
+    print("OK wallpaper installed")
+  else
+    print("ERR wallpaper: " .. tostring(err))
+  end
 elseif command == "doctor" or command == "gpu-test" then
   run_doctor()
 elseif command == "version" then

@@ -10,6 +10,13 @@ local FILES = {
   { source = "startup/dock-server.lua", target = "/startup/dock-server.lua" },
 }
 
+local OPTIONAL_ASSETS = {
+  { source = "wallpaper-480x360.png", target = "/dock/assets/wallpaper-480x360.png", binary = true },
+  { source = "wallpaper-320x216.png", target = "/dock/assets/wallpaper-320x216.png", binary = true },
+  { source = "wallpaper-800x480.png", target = "/dock/assets/wallpaper-800x480.png", binary = true },
+  { source = "wallpaper.png", target = "/dock/assets/wallpaper.png", binary = true },
+}
+
 local START_MARK = "-- DockOS startup hook: begin"
 local END_MARK = "-- DockOS startup hook: end"
 
@@ -25,16 +32,23 @@ end
 
 local function parse_args(raw)
   local source_url = DEFAULT_SOURCE_URL
+  local asset_url = nil
   local index = 1
   while index <= #raw do
     if raw[index] == "--source" then
       source_url = raw[index + 1] or source_url
       index = index + 2
+    elseif raw[index] == "--assets" then
+      asset_url = raw[index + 1] or asset_url
+      index = index + 2
     else
       index = index + 1
     end
   end
-  return source_url
+  if not asset_url then
+    asset_url = source_url:gsub("/cc/?$", "/assets")
+  end
+  return source_url, asset_url
 end
 
 local function ensure_parent(path)
@@ -44,9 +58,9 @@ local function ensure_parent(path)
   end
 end
 
-local function write_file(path, data)
+local function write_file(path, data, binary)
   ensure_parent(path)
-  local handle = fs.open(path, "w")
+  local handle = fs.open(path, binary and "wb" or "w") or fs.open(path, "w")
   if not handle then
     return nil, "cannot open " .. path
   end
@@ -76,7 +90,7 @@ local function download(url)
   if not http then
     return nil, "HTTP API is disabled"
   end
-  local handle, err = http.get(url, { ["Accept"] = "text/plain" })
+  local handle, err = http.get(url, { ["Accept"] = "*/*" })
   if not handle then
     return nil, err or "request failed"
   end
@@ -124,7 +138,7 @@ local function install_startup()
   return write_file("/startup.lua", replace_block(read_file("/startup.lua") or ""))
 end
 
-local function install_files(source_url)
+local function install_files(source_url, asset_url)
   if fs.exists(TEMP_DIR) then
     fs.delete(TEMP_DIR)
   end
@@ -137,7 +151,7 @@ local function install_files(source_url)
       fs.delete(TEMP_DIR)
       return nil, err
     end
-    local ok, write_err = write_file(temp_path(file.target), body)
+    local ok, write_err = write_file(temp_path(file.target), body, file.binary)
     if not ok then
       fs.delete(TEMP_DIR)
       return nil, write_err
@@ -150,6 +164,25 @@ local function install_files(source_url)
     end
     ensure_parent(file.target)
     fs.move(temp_path(file.target), file.target)
+  end
+
+  for _, file in ipairs(OPTIONAL_ASSETS) do
+    print("DockOS asset " .. file.source)
+    local body = download(join_url(asset_url, file.source))
+    if body then
+      local ok, write_err = write_file(temp_path(file.target), body, file.binary)
+      if not ok then
+        fs.delete(TEMP_DIR)
+        return nil, write_err
+      end
+      if fs.exists(file.target) then
+        fs.delete(file.target)
+      end
+      ensure_parent(file.target)
+      fs.move(temp_path(file.target), file.target)
+    else
+      print("Skip optional asset")
+    end
   end
 
   fs.delete(TEMP_DIR)
@@ -169,12 +202,13 @@ local function append_shell_path(path)
   shell.setPath(current .. ":" .. path)
 end
 
-local source_url = parse_args({ ... })
+local source_url, asset_url = parse_args({ ... })
 
 print("DockOS Installer")
 print("Source: " .. source_url)
+print("Assets: " .. asset_url)
 
-local ok, err = install_files(source_url)
+local ok, err = install_files(source_url, asset_url)
 if not ok then
   print("ERR Install failed: " .. tostring(err))
   return

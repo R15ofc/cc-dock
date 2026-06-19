@@ -32,7 +32,7 @@ Recommended screen size for the current UI is at least a `3x5` Tom bitmap monito
 
 - Mac-style desktop.
 - External-display first: no UI is drawn on the PC terminal.
-- Meadow/mountain default wallpaper.
+- Real PNG wallpaper loading through Tom GPU `decodeImage`/`drawImage`.
 - Release boot splash.
 - High-resolution Tom GPU renderer with glass menu/dock and rounded windows.
 - System menu with About, reboot, shutdown, Files, Settings, Terminal.
@@ -65,6 +65,7 @@ dock store
 dock store install luma
 dock apps
 dock doctor
+dock wallpaper <raw_png_or_jpg_url>
 ```
 
 Terminal commands inside DockOS:
@@ -81,6 +82,23 @@ touch /work/readme.txt
 rm /work/readme.txt
 reboot
 shutdown
+```
+
+## Wallpaper Assets
+
+DockOS loads real image files from `/dock/assets`, not a Lua-drawn fake wallpaper.
+Best match for a `3x5` Tom bitmap monitor is usually `wallpaper-480x360.png`.
+
+Prepare assets on your computer:
+
+```bash
+python3 tools/prepare-wallpaper.py /path/to/photo.jpg --out assets
+```
+
+Then push the generated files or install a raw image directly in Minecraft:
+
+```lua
+dock wallpaper https://example.com/wallpaper-480x360.png
 ```
 
 `dock doctor` keeps output on the computer terminal and prints attached peripherals,
