@@ -1,4 +1,4 @@
-local VERSION = "1.2.3"
+local VERSION = "1.2.4"
 local LUMA_INSTALLER_URL = "https://raw.githubusercontent.com/R15ofc/cc-luma/main/luma-installer.lua"
 local LUMA_SOURCE_URL = "https://raw.githubusercontent.com/R15ofc/cc-luma/main/cc"
 local DOCS_DIR = "/dock/documents"
@@ -10,6 +10,9 @@ local args = { ... }
 local unpacker = table.unpack or unpack
 local IMAGE_FILE_READ_CHUNK = 4096
 local IMAGE_BUFFER_WRITE_CHUNK = 512
+local DEFAULT_TIMEZONE_OFFSET = 3
+local MIN_TIMEZONE_OFFSET = -12
+local MAX_TIMEZONE_OFFSET = 14
 
 local DEFAULT_EXTERNAL_WIDTH = 80
 local DEFAULT_EXTERNAL_HEIGHT = 30
@@ -164,6 +167,7 @@ local THEME_ORDER = { "linux", "dark", "forest", "purple", "win10" }
 local SETTINGS_TABS = {
   { id = "general", label = "General" },
   { id = "theme", label = "Theme" },
+  { id = "time", label = "Time" },
   { id = "devices", label = "Devices" },
   { id = "privacy", label = "Privacy" },
   { id = "power", label = "Power" },
@@ -238,6 +242,7 @@ local state = {
   wallpaper_key = nil,
   wallpaper_error = nil,
   wallpaper_attempted = false,
+  timezone_offset = DEFAULT_TIMEZONE_OFFSET,
   icon_cache = {},
   directgpu = nil,
   headless = true,
@@ -499,6 +504,36 @@ local function read_file(path)
   return data or ""
 end
 
+local function normalize_timezone_offset(value)
+  local offset = tonumber(value) or DEFAULT_TIMEZONE_OFFSET
+  offset = math.floor(offset)
+  return math.max(MIN_TIMEZONE_OFFSET, math.min(MAX_TIMEZONE_OFFSET, offset))
+end
+
+local function timezone_label()
+  local offset = normalize_timezone_offset(state.timezone_offset)
+  if offset == 0 then
+    return "UTC"
+  end
+  return "UTC" .. (offset > 0 and "+" or "") .. tostring(offset)
+end
+
+local function current_time_text()
+  local offset = normalize_timezone_offset(state.timezone_offset)
+  if os.epoch and os.date then
+    local ok, epoch_ms = pcall(os.epoch, "utc")
+    if ok and type(epoch_ms) == "number" then
+      local seconds = math.floor(epoch_ms / 1000) + offset * 3600
+      local date_ok, date = pcall(os.date, "!*t", seconds)
+      if date_ok and type(date) == "table" and date.hour and date.min then
+        return string.format("%s %02d:%02d", timezone_label(), date.hour, date.min)
+      end
+    end
+  end
+  local clock = textutils and textutils.formatTime and textutils.formatTime(os.time(), true) or tostring(os.time())
+  return timezone_label() .. " " .. tostring(clock)
+end
+
 local function apply_theme(theme_id)
   local preset = THEME_PRESETS[theme_id] or THEME_PRESETS.linux
   for key, value in pairs(preset.values) do
@@ -517,12 +552,15 @@ local function load_config()
     local key, value = line:match("^%s*([%w_%-]+)%s*=%s*(.-)%s*$")
     if key == "theme" then
       apply_theme(value)
+    elseif key == "timezone_offset" then
+      state.timezone_offset = normalize_timezone_offset(value)
     end
   end
 end
 
 local function save_config()
   local config = "theme=" .. tostring(state.theme_id or "linux") .. "\n"
+    .. "timezone_offset=" .. tostring(normalize_timezone_offset(state.timezone_offset)) .. "\n"
   return write_file(CONFIG_PATH, config)
 end
 
@@ -980,9 +1018,6 @@ end
 
 local function toggle_fullscreen(window_state)
   local screen_width, screen_height = screen_size()
-  local shell_left = 5
-  local shell_top = 1
-  local shell_bottom = 3
   if window_state.fullscreen then
     local saved = window_state.saved_rect
     if saved then
@@ -1000,10 +1035,10 @@ local function toggle_fullscreen(window_state)
       width = window_state.width,
       height = window_state.height,
     }
-    window_state.left = shell_left
-    window_state.top = shell_top
-    window_state.width = math.max(24, screen_width - shell_left + 1)
-    window_state.height = math.max(10, screen_height - shell_top - shell_bottom + 1)
+    window_state.left = 1
+    window_state.top = 1
+    window_state.width = math.max(24, screen_width)
+    window_state.height = math.max(10, screen_height)
     window_state.fullscreen = true
     window_state.minimized = false
   end
@@ -1045,14 +1080,14 @@ local function terminal_boot()
   if #state.terminal_lines > 0 then
     return
   end
-  terminal_print("DockOS Shell " .. VERSION, colors.cyan)
-  terminal_print("Type 'help' for commands.", colors.lightGray)
+  terminal_print("DockOS Terminal " .. VERSION, colors.cyan)
+  terminal_print("Enter 'help' to list commands.", colors.lightGray)
 end
 
 local function terminal_list(path)
   local target = resolve_path(path or state.terminal_cwd, state.terminal_cwd)
   if not fs.exists(target) then
-    terminal_print("ERR not found: " .. target, colors.red)
+    terminal_print("Not found: " .. target, colors.red)
     return
   end
   if not fs.isDir(target) then
@@ -1082,7 +1117,7 @@ end
 local function terminal_cat(path)
   local target = resolve_path(path or "", state.terminal_cwd)
   if not fs.exists(target) or fs.isDir(target) then
-    terminal_print("ERR file not found: " .. target, colors.red)
+    terminal_print("File not found: " .. target, colors.red)
     return
   end
   local body = read_file(target) or ""
@@ -1108,7 +1143,7 @@ local function terminal_execute(command_line)
   if command == "help" then
     terminal_print("help, clear, pwd, ls [path], cd <path>", colors.cyan)
     terminal_print("cat <file>, mkdir <path>, touch <file>, rm <path>", colors.cyan)
-    terminal_print("open <app>, apps, wallpaper <url>, version", colors.cyan)
+    terminal_print("open <app>, apps, wallpaper <url>, version, time", colors.cyan)
     terminal_print("reboot, shutdown", colors.cyan)
   elseif command == "clear" then
     state.terminal_lines = {}
@@ -1121,37 +1156,37 @@ local function terminal_execute(command_line)
     if fs.exists(target) and fs.isDir(target) then
       state.terminal_cwd = target
     else
-      terminal_print("ERR directory not found: " .. target, colors.red)
+      terminal_print("Directory not found: " .. target, colors.red)
     end
   elseif command == "cat" then
     terminal_cat(words[2])
   elseif command == "mkdir" then
     local target = resolve_path(words[2] or "", state.terminal_cwd)
     if target == "/" or target == "." then
-      terminal_print("ERR invalid path", colors.red)
+      terminal_print("Invalid path.", colors.red)
     elseif fs.exists(target) then
-      terminal_print("ERR already exists: " .. target, colors.red)
+      terminal_print("Already exists: " .. target, colors.red)
     else
       fs.makeDir(target)
-      terminal_print("OK created " .. target, colors.lime)
+      terminal_print("Created: " .. target, colors.lime)
     end
   elseif command == "touch" then
     local target = resolve_path(words[2] or "", state.terminal_cwd)
     if target == "/" or target == "." then
-      terminal_print("ERR invalid path", colors.red)
+      terminal_print("Invalid path.", colors.red)
     else
       write_file(target, read_file(target) or "")
-      terminal_print("OK wrote " .. target, colors.lime)
+      terminal_print("Written: " .. target, colors.lime)
     end
   elseif command == "rm" then
     local target = resolve_path(words[2] or "", state.terminal_cwd)
     if target == "/" or target == "." then
-      terminal_print("ERR refusing to remove root", colors.red)
+      terminal_print("Refusing to remove root.", colors.red)
     elseif fs.exists(target) then
       fs.delete(target)
-      terminal_print("OK removed " .. target, colors.lime)
+      terminal_print("Removed: " .. target, colors.lime)
     else
-      terminal_print("ERR not found: " .. target, colors.red)
+      terminal_print("Not found: " .. target, colors.red)
     end
   elseif command == "apps" then
     local ids = {}
@@ -1163,18 +1198,20 @@ local function terminal_execute(command_line)
   elseif command == "wallpaper" then
     local ok, err = install_wallpaper_url(words[2])
     if ok then
-      terminal_print("OK wallpaper installed", colors.lime)
+      terminal_print("Wallpaper installed.", colors.lime)
     else
-      terminal_print("ERR wallpaper: " .. tostring(err), colors.red)
+      terminal_print("Wallpaper failed: " .. tostring(err), colors.red)
     end
   elseif command == "open" then
     local app_id = words[2]
     if app_id and APPS[app_id] and open_app then
       open_app(app_id)
-      terminal_print("OK opened " .. app_id, colors.lime)
+      terminal_print("Opened: " .. app_id, colors.lime)
     else
-      terminal_print("ERR app not found", colors.red)
+      terminal_print("Application not found.", colors.red)
     end
+  elseif command == "time" then
+    terminal_print(current_time_text(), colors.white)
   elseif command == "version" then
     terminal_print(VERSION, colors.white)
   elseif command == "reboot" then
@@ -1182,7 +1219,7 @@ local function terminal_execute(command_line)
   elseif command == "shutdown" then
     os.shutdown()
   else
-    terminal_print("ERR unknown command: " .. command, colors.red)
+    terminal_print("Unknown command: " .. command, colors.red)
   end
 end
 
@@ -1319,6 +1356,22 @@ local function pixel_round(left, top, width, height, radius, color)
   end
 end
 
+local function pixel_icon(left, top, width, height, icon_id, fallback, background, foreground)
+  if state.headless then
+    queue_frame_op({
+      kind = "pixel_image",
+      left = left,
+      top = top,
+      width = width,
+      height = height,
+      path = icon_asset_path(icon_id),
+      fallback = tostring(fallback or ""),
+      background = background,
+      foreground = foreground or foreground_for_background(background),
+    })
+  end
+end
+
 local function pixel_tiny_text(left, top, text, color, scale)
   if state.headless then
     queue_frame_op({ kind = "tiny_text", left = left, top = top, text = tostring(text or ""), color = color or colors.white, scale = scale or 1 })
@@ -1422,38 +1475,49 @@ local function draw_dock()
       { app = "settings", action = "dock_pinned", color = colors.black },
     }
     for index, item in ipairs(quick) do
-      local icon_top = 4 + (index - 1) * 21
-      pixel_round(3, icon_top, 17, 17, 3, item.color)
+      local app = APPS[item.app]
+      local icon_top = 4 + (index - 1) * 23
+      pixel_round(3, icon_top, 26, 20, 3, item.color)
+      if app then
+        pixel_icon(4, icon_top + 1, 24, 18, app.icon_asset, app.icon, nil, colors.white)
+      end
       local hit_top = math.max(1, math.floor((icon_top - 1) / state.external.cell_height) + 1)
-      add_hit(item.action, 1, hit_top, 4, 2, item.app)
+      add_hit(item.action, 1, hit_top, 5, 3, item.app)
     end
 
     pixel_fill(1, bottom_top, pixel_width, bottom_height, colors.black)
     local icon_left = 4
-    local icon_top = bottom_top + 4
+    local icon_top = bottom_top + math.max(2, math.floor((bottom_height - 18) / 2))
     for _, app_id in ipairs(PINNED) do
-      if icon_left + 16 >= pixel_width - 70 then
+      local app = APPS[app_id]
+      if icon_left + 24 >= pixel_width - 70 then
         break
       end
-      pixel_round(icon_left, icon_top, 16, 14, 3, colors.red)
+      pixel_round(icon_left, icon_top, 24, 18, 3, app and app.color or colors.red)
+      if app then
+        pixel_icon(icon_left, icon_top, 24, 18, app.icon_asset, app.icon, nil, colors.white)
+      end
       local hit_left = math.max(1, math.floor((icon_left - 1) / state.external.cell_width) + 1)
       local hit_top = math.max(1, math.floor((icon_top - 1) / state.external.cell_height) + 1)
-      add_hit("dock_pinned", hit_left, hit_top, 3, 2, app_id)
-      icon_left = icon_left + 18
+      add_hit("dock_pinned", hit_left, hit_top, 4, 2, app_id)
+      icon_left = icon_left + 28
     end
     local open_left = icon_left + 4
     for _, app_id in ipairs(state.open_dock_order) do
-      if not is_pinned(app_id) and open_left + 16 < pixel_width - 70 then
-        pixel_round(open_left, icon_top, 16, 14, 3, colors.orange)
+      local app = APPS[app_id]
+      if not is_pinned(app_id) and open_left + 24 < pixel_width - 70 then
+        pixel_round(open_left, icon_top, 24, 18, 3, app and app.color or colors.orange)
+        if app then
+          pixel_icon(open_left, icon_top, 24, 18, app.icon_asset, app.icon, nil, colors.white)
+        end
         local hit_left = math.max(1, math.floor((open_left - 1) / state.external.cell_width) + 1)
         local hit_top = math.max(1, math.floor((icon_top - 1) / state.external.cell_height) + 1)
-        add_hit("dock_open", hit_left, hit_top, 3, 2, app_id)
-        open_left = open_left + 18
+        add_hit("dock_open", hit_left, hit_top, 4, 2, app_id)
+        open_left = open_left + 28
       end
     end
     add_hit("dock_drop_end", math.max(1, math.floor((open_left - 1) / state.external.cell_width) + 1), screen_height - 1, 3, 2, nil)
-    local clock = textutils and textutils.formatTime and textutils.formatTime(os.time(), true) or ""
-    local status = "SYS " .. tostring(clock)
+    local status = current_time_text()
     local status_width = tiny_text_width(status, 1)
     pixel_tiny_text(math.max(1, pixel_width - status_width - 5), bottom_top + 7, status, colors.white, 1)
   else
@@ -1468,8 +1532,7 @@ local function draw_dock()
       add_hit("dock_pinned", icon_left, bottom_row, 2, 2, app_id)
       icon_left = icon_left + 3
     end
-    local clock = textutils and textutils.formatTime and textutils.formatTime(os.time(), true) or ""
-    local status = "SYS " .. tostring(clock)
+    local status = current_time_text()
     write_at(math.max(1, screen_width - #status), bottom_row, status, colors.white, colors.black)
   end
 end
@@ -1477,13 +1540,18 @@ end
 local function draw_top_panel()
 end
 
+local function window_title_height(window_state)
+  return window_state and window_state.fullscreen and 1 or 2
+end
+
 local function draw_window_frame(window_state)
   local active = state.active_window == window_state.id
   local app = window_state.app and APPS[window_state.app] or nil
   local title_color = active and THEME.window_title or THEME.window_inactive
   local title_foreground = active and colors.white or colors.lightGray
+  local title_height = window_title_height(window_state)
   fill(window_state.left, window_state.top, window_state.width, window_state.height, THEME.window)
-  fill(window_state.left, window_state.top, window_state.width, 2, title_color)
+  fill(window_state.left, window_state.top, window_state.width, title_height, title_color)
   add_hit("window_focus", window_state.left, window_state.top, window_state.width, window_state.height, window_state.id)
   if app then
     draw_icon_asset(window_state.left + 1, window_state.top, 3, 1, app.icon_asset, app.icon, title_foreground, title_color)
@@ -1496,11 +1564,15 @@ local function draw_window_frame(window_state)
   add_hit("window_minimize", controls_left, window_state.top, 1, 1, window_state.id)
   add_hit("window_fullscreen", controls_left + 3, window_state.top, 2, 1, window_state.id)
   add_hit("window_close", controls_left + 6, window_state.top, 1, 1, window_state.id)
-  add_hit("window_drag", window_state.left, window_state.top, math.max(1, controls_left - window_state.left), 2, window_state.id)
+  add_hit("window_drag", window_state.left, window_state.top, math.max(1, controls_left - window_state.left), title_height, window_state.id)
 end
 
 local function content_rect(window_state)
-  return window_state.left + 1, window_state.top + 3, window_state.width - 2, window_state.height - 4
+  local title_height = window_title_height(window_state)
+  if window_state and window_state.fullscreen then
+    return window_state.left + 1, window_state.top + title_height, window_state.width - 2, window_state.height - title_height
+  end
+  return window_state.left + 1, window_state.top + title_height + 1, window_state.width - 2, window_state.height - title_height - 2
 end
 
 local function selected_file_entry()
@@ -2016,6 +2088,14 @@ local function draw_settings(window_state)
         theme_top = theme_top + 2
       end
     end
+  elseif state.settings_tab == "time" then
+    write_at(content_left, content_top + 2, "Time", colors.white, THEME.field)
+    write_at(content_left, content_top + 4, "Current: " .. current_time_text(), colors.lightGray, THEME.field)
+    write_at(content_left, content_top + 5, "Timezone: " .. timezone_label(), colors.lightGray, THEME.field)
+    local button_left = content_left
+    button_left = button_left + draw_button("time_decrease", button_left, content_top + 7, "-1 hour", nil, colors.gray) + 1
+    button_left = button_left + draw_button("time_increase", button_left, content_top + 7, "+1 hour", nil, colors.gray) + 1
+    draw_button("time_reset", button_left, content_top + 7, "UTC+3", nil, THEME.button)
   elseif state.settings_tab == "devices" then
     write_at(content_left, content_top + 2, "Devices", colors.white, THEME.field)
     local button_left = content_left
@@ -2201,6 +2281,11 @@ local function draw_windows()
   end
 end
 
+local function active_fullscreen_window()
+  local window_state = state.windows[state.active_window]
+  return window_state and window_state.fullscreen and not window_state.minimized
+end
+
 local function draw_toast()
   if not state.toast or state.toast == "" then
     return
@@ -2259,7 +2344,7 @@ local function draw_input()
   write_at(left + 2, top + 2, pad(visible_value .. "_", field_width), colors.white, THEME.field)
   local cursor_left = left + 2
   local button_top = top + modal_height - 2
-  cursor_left = cursor_left + draw_button("input_ok", cursor_left, button_top, "OK", nil, THEME.button) + 2
+  cursor_left = cursor_left + draw_button("input_ok", cursor_left, button_top, "Apply", nil, THEME.button) + 2
   draw_button("input_cancel", cursor_left, button_top, "Cancel", nil, colors.gray)
 end
 
@@ -2776,6 +2861,8 @@ local function render_tom_gpu()
           tom_draw_text(gpu, pixel_left, pixel_top, op.text, op.foreground, op.background)
         elseif op.kind == "image" then
           render_image_op(gpu, op, pixel_left, pixel_top, pixel_width, pixel_height)
+        elseif op.kind == "pixel_image" then
+          render_image_op(gpu, op, op.left, op.top, op.width, op.height)
         elseif op.kind == "pixel_fill" then
           tom_fill_rect(gpu, op.left, op.top, op.width, op.height, op.color)
         elseif op.kind == "pixel_round" then
@@ -2936,9 +3023,14 @@ function draw()
   fill(1, 1, screen_width, screen_height, THEME.desktop)
   draw_menu_bar()
   draw_desktop()
+  local fullscreen_active = active_fullscreen_window()
+  if not fullscreen_active then
+    draw_dock()
+  end
   draw_windows()
-  draw_dock()
-  draw_system_menu()
+  if not fullscreen_active then
+    draw_system_menu()
+  end
   draw_toast()
   draw_modal()
   draw_input()
@@ -3138,6 +3230,18 @@ local function handle_action(action, payload, mouse_left, mouse_top)
     printer_test()
   elseif action == "settings_tab" then
     state.settings_tab = payload or "general"
+  elseif action == "time_decrease" then
+    state.timezone_offset = normalize_timezone_offset((state.timezone_offset or DEFAULT_TIMEZONE_OFFSET) - 1)
+    local ok, err = save_config()
+    state.settings_message = ok and ("Timezone saved: " .. timezone_label()) or ("Timezone save failed: " .. tostring(err))
+  elseif action == "time_increase" then
+    state.timezone_offset = normalize_timezone_offset((state.timezone_offset or DEFAULT_TIMEZONE_OFFSET) + 1)
+    local ok, err = save_config()
+    state.settings_message = ok and ("Timezone saved: " .. timezone_label()) or ("Timezone save failed: " .. tostring(err))
+  elseif action == "time_reset" then
+    state.timezone_offset = DEFAULT_TIMEZONE_OFFSET
+    local ok, err = save_config()
+    state.settings_message = ok and ("Timezone saved: " .. timezone_label()) or ("Timezone save failed: " .. tostring(err))
   elseif action == "theme_set" then
     apply_theme(payload)
     local ok, err = save_config()
@@ -3325,9 +3429,9 @@ local function install_from_store(app_id)
   if app_id == "luma" then
     install_luma()
   elseif app_id == "docs" or app_id == "paint" then
-    print("OK built-in")
+    print("Built-in application.")
   else
-    print("ERR app not found: " .. tostring(app_id))
+    print("Application not found: " .. tostring(app_id))
   end
 end
 
@@ -3350,11 +3454,11 @@ local function run_3d_doctor()
   scan_external_peripherals()
   local gpu = state.external.gpu
   if not gpu then
-    print("ERR Tom GPU not found")
+    print("Tom GPU not found.")
     return
   end
   if not gpu.createWindow3D then
-    print("ERR createWindow3D not available on this GPU")
+    print("3D window API is not available on this GPU.")
     return
   end
   local ok, err = pcall(function()
@@ -3404,9 +3508,9 @@ local function run_3d_doctor()
     end
   end)
   if ok then
-    print("OK 3D cube frame rendered")
+    print("3D cube frame rendered.")
   else
-    print("ERR 3D failed: " .. tostring(err))
+    print("3D render failed: " .. tostring(err))
   end
 end
 
@@ -3416,14 +3520,14 @@ local function run_doctor()
   print("DockOS " .. VERSION .. " doctor")
   print("")
   if not peripheral or not peripheral.getNames then
-    print("ERR peripheral API missing")
+    print("Peripheral API is missing.")
     return
   end
 
   local names = peripheral.getNames()
   table.sort(names)
   if #names == 0 then
-    print("ERR no peripherals attached")
+    print("No peripherals attached.")
   else
     print("Peripherals:")
     for _, name in ipairs(names) do
@@ -3459,7 +3563,7 @@ local function run_doctor()
 
   if not state.external.gpu then
     print("")
-    print("ERR Tom GPU not detected. Expected peripheral like tm_gpu_0.")
+    print("Tom GPU not detected. Expected peripheral like tm_gpu_0.")
     return
   end
 
@@ -3475,7 +3579,7 @@ local function run_doctor()
       gpu.filledRectangle(15, 15, 152, 52, 0x2C2C2E)
     end
     if gpu.drawText then
-      tom_draw_text(gpu, 25, 27, "DockOS GPU OK", colors.white, nil)
+      tom_draw_text(gpu, 25, 27, "DockOS GPU active", colors.white, nil)
       tom_draw_text(gpu, 25, 45, tostring(state.external.gpu_name), colors.cyan, nil)
     end
     if gpu.sync then
@@ -3484,10 +3588,10 @@ local function run_doctor()
   end)
   if ok then
     print("")
-    print("OK test pattern sent to Tom GPU")
+    print("Test pattern sent to Tom GPU.")
   else
     print("")
-    print("ERR GPU test failed: " .. tostring(err))
+    print("GPU test failed: " .. tostring(err))
   end
 end
 
@@ -3508,9 +3612,9 @@ elseif command == "apps" then
 elseif command == "wallpaper" and args[2] then
   local ok, err = install_wallpaper_url(args[2])
   if ok then
-    print("OK wallpaper installed")
+    print("Wallpaper installed.")
   else
-    print("ERR wallpaper: " .. tostring(err))
+    print("Wallpaper failed: " .. tostring(err))
   end
 elseif command == "doctor" and args[2] == "3d" then
   run_3d_doctor()
