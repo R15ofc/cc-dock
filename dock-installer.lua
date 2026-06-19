@@ -14,11 +14,13 @@ local OPTIONAL_ASSETS = {
   { source = "wallpaper-320x216.jpg", target = "/dock/assets/wallpaper-320x216.jpg", binary = true },
   { source = "wallpaper-480x270.jpg", target = "/dock/assets/wallpaper-480x270.jpg", binary = true },
   { source = "wallpaper-480x360.jpg", target = "/dock/assets/wallpaper-480x360.jpg", binary = true },
+  { source = "wallpaper-480x360.png", target = "/dock/assets/wallpaper-480x360.png", binary = true },
   { source = "wallpaper-640x360.jpg", target = "/dock/assets/wallpaper-640x360.jpg", binary = true },
   { source = "wallpaper-800x360.jpg", target = "/dock/assets/wallpaper-800x360.jpg", binary = true },
   { source = "wallpaper-800x480.jpg", target = "/dock/assets/wallpaper-800x480.jpg", binary = true },
   { source = "wallpaper-960x540.jpg", target = "/dock/assets/wallpaper-960x540.jpg", binary = true },
   { source = "wallpaper.jpg", target = "/dock/assets/wallpaper.jpg", binary = true },
+  { source = "wallpaper.png", target = "/dock/assets/wallpaper.png", binary = true },
   { source = "icons/apps.png", target = "/dock/assets/icons/apps.png", binary = true },
   { source = "icons/computer.png", target = "/dock/assets/icons/computer.png", binary = true },
   { source = "icons/docs.png", target = "/dock/assets/icons/docs.png", binary = true },
@@ -31,13 +33,22 @@ local OPTIONAL_ASSETS = {
   { source = "icons/start.png", target = "/dock/assets/icons/start.png", binary = true },
   { source = "icons/store.png", target = "/dock/assets/icons/store.png", binary = true },
   { source = "icons/terminal.png", target = "/dock/assets/icons/terminal.png", binary = true },
+  { source = "icons/apps_tile.png", target = "/dock/assets/icons/apps_tile.png", binary = true },
+  { source = "icons/folder_tile.png", target = "/dock/assets/icons/folder_tile.png", binary = true },
+  { source = "icons/store_tile.png", target = "/dock/assets/icons/store_tile.png", binary = true },
+  { source = "icons/docs_tile.png", target = "/dock/assets/icons/docs_tile.png", binary = true },
+  { source = "icons/paint_tile.png", target = "/dock/assets/icons/paint_tile.png", binary = true },
+  { source = "icons/settings_tile.png", target = "/dock/assets/icons/settings_tile.png", binary = true },
+  { source = "icons/luma_tile.png", target = "/dock/assets/icons/luma_tile.png", binary = true },
+  { source = "icons/terminal_tile.png", target = "/dock/assets/icons/terminal_tile.png", binary = true },
+  { source = "icons/info_tile.png", target = "/dock/assets/icons/info_tile.png", binary = true },
+  { source = "icons/search_tile.png", target = "/dock/assets/icons/search_tile.png", binary = true },
+  { source = "icons/start_tile.png", target = "/dock/assets/icons/start_tile.png", binary = true },
 }
 
 local LEGACY_ASSETS = {
   "/dock/assets/wallpaper-320x216.png",
-  "/dock/assets/wallpaper-480x360.png",
   "/dock/assets/wallpaper-800x480.png",
-  "/dock/assets/wallpaper.png",
 }
 
 local START_MARK = "-- DockOS startup hook: begin"

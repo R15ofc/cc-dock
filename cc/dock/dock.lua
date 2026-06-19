@@ -1,4 +1,4 @@
-local VERSION = "1.1.0"
+local VERSION = "1.1.1"
 local LUMA_INSTALLER_URL = "https://raw.githubusercontent.com/R15ofc/cc-luma/main/luma-installer.lua"
 local LUMA_SOURCE_URL = "https://raw.githubusercontent.com/R15ofc/cc-luma/main/cc"
 local DOCS_DIR = "/dock/documents"
@@ -144,14 +144,14 @@ local SETTINGS_TABS = {
 }
 
 local APPS = {
-  launcher = { id = "launcher", name = "Apps", icon = "AP", icon_asset = "apps", color = colors.lightGray },
-  finder = { id = "finder", name = "Files", icon = "FS", icon_asset = "folder", color = colors.blue },
-  store = { id = "store", name = "Store", icon = "ST", icon_asset = "store", color = colors.cyan },
-  docs = { id = "docs", name = "Docs", icon = "DC", icon_asset = "docs", color = colors.orange },
-  paint = { id = "paint", name = "Paint", icon = "PT", icon_asset = "paint", color = colors.pink },
-  settings = { id = "settings", name = "Settings", icon = "SG", icon_asset = "settings", color = colors.orange },
-  luma = { id = "luma", name = "Luma", icon = "LM", icon_asset = "luma", color = colors.purple },
-  terminal = { id = "terminal", name = "Terminal", icon = ">_", icon_asset = "terminal", color = colors.green },
+  launcher = { id = "launcher", name = "Apps", icon = "AP", icon_asset = "apps_tile", color = colors.lightGray },
+  finder = { id = "finder", name = "Files", icon = "FS", icon_asset = "folder_tile", color = colors.blue },
+  store = { id = "store", name = "Store", icon = "ST", icon_asset = "store_tile", color = colors.cyan },
+  docs = { id = "docs", name = "Docs", icon = "DC", icon_asset = "docs_tile", color = colors.orange },
+  paint = { id = "paint", name = "Paint", icon = "PT", icon_asset = "paint_tile", color = colors.pink },
+  settings = { id = "settings", name = "Settings", icon = "SG", icon_asset = "settings_tile", color = colors.orange },
+  luma = { id = "luma", name = "Luma", icon = "LM", icon_asset = "luma_tile", color = colors.purple },
+  terminal = { id = "terminal", name = "Terminal", icon = ">_", icon_asset = "terminal_tile", color = colors.green },
 }
 
 local PINNED = { "launcher", "finder", "store", "docs", "paint", "settings", "luma", "terminal" }
@@ -1253,25 +1253,33 @@ local function draw_system_menu()
 end
 
 local function draw_desktop()
+  local screen_width, screen_height = screen_size()
   local desktop_icons = {
     { app = "finder", name = "This PC", icon = "PC" },
     { app = "launcher", name = "Apps", icon = "AP" },
     { app = "store", name = "Store", icon = "ST" },
     { app = "docs", name = "Docs", icon = "DC" },
     { app = "paint", name = "Paint", icon = "PT" },
-    { action = "system_about", name = "About", icon = "i", icon_asset = "info", color = colors.gray },
+    { action = "system_about", name = "About", icon = "i", icon_asset = "info_tile", color = colors.gray },
   }
   local left = 3
   local top = 2
+  local dock_top = math.max(1, screen_height - 1)
   for _, item in ipairs(desktop_icons) do
-    local app = item.app and APPS[item.app] or nil
-    if app then
-      draw_app_icon(left + 2, top, app, 4, 2, nil, nil)
-    else
-      draw_icon_asset(left + 2, top, 4, 2, item.icon_asset, item.icon, foreground_for_background(item.color), item.color)
+    if top + 3 >= dock_top then
+      left = left + 14
+      top = 2
     end
-    write_at(left, top + 2, trim(item.name, 12), colors.white, nil)
-    add_hit(item.action or "desktop_app", left, top, 12, 3, item.app)
+    if left + 11 <= screen_width then
+      local app = item.app and APPS[item.app] or nil
+      if app then
+        draw_app_icon(left + 2, top, app, 4, 2, nil, nil)
+      else
+        draw_icon_asset(left + 2, top, 4, 2, item.icon_asset, item.icon, foreground_for_background(item.color), item.color)
+      end
+      write_at(left, top + 2, trim(item.name, 12), colors.white, nil)
+      add_hit(item.action or "desktop_app", left, top, 12, 3, item.app)
+    end
     top = top + 4
   end
 end
@@ -1309,14 +1317,14 @@ local function draw_dock()
   fill(1, dock_top, screen_width, 2, THEME.dock)
   local start_background = state.system_menu_open and THEME.selected or THEME.window_title
   fill(1, dock_top, 7, 2, start_background)
-  draw_icon_asset(2, dock_top, 3, 1, "start", "[]", foreground_for_background(start_background), start_background)
+  draw_icon_asset(2, dock_top, 3, 2, "start_tile", "[]", foreground_for_background(start_background), start_background)
   add_hit("system_menu_toggle", 1, dock_top, 8, 2, nil)
 
   local search_left = 9
   local search_width = math.min(28, math.max(12, math.floor(screen_width / 4)))
   if search_left + search_width + 10 < screen_width then
     fill(search_left, dock_top, search_width, 2, THEME.field)
-    draw_icon_asset(search_left + 1, dock_top, 3, 1, "search", "?", colors.lightGray, THEME.field)
+    draw_icon_asset(search_left + 1, dock_top, 3, 2, "search_tile", "?", colors.lightGray, THEME.field)
     write_at(search_left + 5, dock_top, trim("Search apps", search_width - 6), colors.lightGray, THEME.field)
     add_hit("app_search_prompt", search_left, dock_top, search_width, 2, nil)
   else
@@ -2298,8 +2306,8 @@ local function tom_fill_rect(gpu, left, top, width, height, color)
   top = math.max(1, math.floor(tonumber(top) or 1))
   width = math.floor(tonumber(width) or 0)
   height = math.floor(tonumber(height) or 0)
-  width = math.min(width, math.max(0, state.external.pixel_width - left))
-  height = math.min(height, math.max(0, state.external.pixel_height - top))
+  width = math.min(width, math.max(0, state.external.pixel_width - left + 1))
+  height = math.min(height, math.max(0, state.external.pixel_height - top + 1))
   if width <= 0 or height <= 0 then
     return
   end
@@ -2313,8 +2321,8 @@ local function tom_fill_rgb(gpu, left, top, width, height, rgb)
   top = math.max(1, math.floor(tonumber(top) or 1))
   width = math.floor(tonumber(width) or 0)
   height = math.floor(tonumber(height) or 0)
-  width = math.min(width, math.max(0, state.external.pixel_width - left))
-  height = math.min(height, math.max(0, state.external.pixel_height - top))
+  width = math.min(width, math.max(0, state.external.pixel_width - left + 1))
+  height = math.min(height, math.max(0, state.external.pixel_height - top + 1))
   if width <= 0 or height <= 0 or not gpu.filledRectangle then
     return
   end
@@ -2472,26 +2480,19 @@ local function load_icon_image(gpu, path)
   return image
 end
 
-local function render_image_op(gpu, op, pixel_left, pixel_top)
+local function render_image_op(gpu, op, pixel_left, pixel_top, pixel_width, pixel_height)
+  pixel_width = pixel_width or op.width * state.external.cell_width
+  pixel_height = pixel_height or op.height * state.external.cell_height
   if op.background then
-    tom_fill_rect(
-      gpu,
-      pixel_left,
-      pixel_top,
-      op.width * state.external.cell_width,
-      op.height * state.external.cell_height,
-      op.background
-    )
+    tom_fill_rect(gpu, pixel_left, pixel_top, pixel_width, pixel_height, op.background)
   end
   local image = load_icon_image(gpu, op.path)
   if image then
     local image_width = image.getWidth and image.getWidth() or 0
     local image_height = image.getHeight and image.getHeight() or 0
-    local box_width = op.width * state.external.cell_width
-    local box_height = op.height * state.external.cell_height
-    if image_width <= box_width and image_height <= box_height then
-      local image_left = pixel_left + math.floor((box_width - image_width) / 2)
-      local image_top = pixel_top + math.floor((box_height - image_height) / 2)
+    if image_width <= pixel_width and image_height <= pixel_height then
+      local image_left = pixel_left + math.floor((pixel_width - image_width) / 2)
+      local image_top = pixel_top + math.floor((pixel_height - image_height) / 2)
       if pcall(gpu.drawImage, image_left, image_top, image.ref()) then
         return
       end
@@ -2512,6 +2513,20 @@ local function should_skip_highres_op(op)
   return false
 end
 
+local function op_pixel_rect(op)
+  local pixel_left = (op.left - 1) * state.external.cell_width + 1
+  local pixel_top = (op.top - 1) * state.external.cell_height + 1
+  local pixel_width = op.width * state.external.cell_width
+  local pixel_height = op.height * state.external.cell_height
+  if op.left + op.width - 1 >= state.virtual_width then
+    pixel_width = state.external.pixel_width - pixel_left + 1
+  end
+  if op.top + op.height - 1 >= state.virtual_height then
+    pixel_height = state.external.pixel_height - pixel_top + 1
+  end
+  return pixel_left, pixel_top, math.max(0, pixel_width), math.max(0, pixel_height)
+end
+
 local function render_tom_gpu()
   local gpu = state.external.gpu
   if not state.headless or not gpu then
@@ -2524,22 +2539,14 @@ local function render_tom_gpu()
       if should_skip_highres_op(op) then
         -- wallpaper already drew this surface
       else
-      local pixel_left = (op.left - 1) * state.external.cell_width + 1
-      local pixel_top = (op.top - 1) * state.external.cell_height + 1
+      local pixel_left, pixel_top, pixel_width, pixel_height = op_pixel_rect(op)
       if op.kind == "fill" then
-        tom_fill_rect(
-          gpu,
-          pixel_left,
-          pixel_top,
-          op.width * state.external.cell_width,
-          op.height * state.external.cell_height,
-          op.background
-        )
+        tom_fill_rect(gpu, pixel_left, pixel_top, pixel_width, pixel_height, op.background)
       elseif op.kind == "text" then
         local background = op.background
         tom_draw_text(gpu, pixel_left, pixel_top, op.text, op.foreground, background)
       elseif op.kind == "image" then
-        render_image_op(gpu, op, pixel_left, pixel_top)
+        render_image_op(gpu, op, pixel_left, pixel_top, pixel_width, pixel_height)
       end
       end
     end
