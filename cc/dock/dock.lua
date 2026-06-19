@@ -1,4 +1,4 @@
-local VERSION = "1.2.2"
+local VERSION = "1.2.3"
 local LUMA_INSTALLER_URL = "https://raw.githubusercontent.com/R15ofc/cc-luma/main/luma-installer.lua"
 local LUMA_SOURCE_URL = "https://raw.githubusercontent.com/R15ofc/cc-luma/main/cc"
 local DOCS_DIR = "/dock/documents"
@@ -8,6 +8,8 @@ local CONFIG_PATH = "/dock/config.txt"
 
 local args = { ... }
 local unpacker = table.unpack or unpack
+local IMAGE_FILE_READ_CHUNK = 4096
+local IMAGE_BUFFER_WRITE_CHUNK = 512
 
 local DEFAULT_EXTERNAL_WIDTH = 80
 local DEFAULT_EXTERNAL_HEIGHT = 30
@@ -235,6 +237,7 @@ local state = {
   wallpaper = nil,
   wallpaper_key = nil,
   wallpaper_error = nil,
+  wallpaper_attempted = false,
   icon_cache = {},
   directgpu = nil,
   headless = true,
@@ -266,14 +269,14 @@ local function blank_terminal()
   if not term then
     return
   end
-  if term.setTextColor then
-    pcall(term.setTextColor, colors.black)
-  end
   if term.setBackgroundColor then
     pcall(term.setBackgroundColor, colors.black)
   end
   if term.clear then
     pcall(term.clear)
+  end
+  if term.setTextColor then
+    pcall(term.setTextColor, colors.white)
   end
   if term.setCursorPos then
     pcall(term.setCursorPos, 1, 1)
@@ -524,12 +527,38 @@ local function save_config()
 end
 
 local function write_buffer_chunk(buffer, chunk)
-  if #chunk == 0 then
+  if not chunk or #chunk == 0 then
+    return true
+  end
+  if type(chunk) == "string" then
+    local offset = 1
+    while offset <= #chunk do
+      local last = math.min(#chunk, offset + IMAGE_BUFFER_WRITE_CHUNK - 1)
+      local ok, err = pcall(function()
+        buffer.write(chunk:byte(offset, last))
+      end)
+      if not ok then
+        return nil, err
+      end
+      offset = last + 1
+    end
     return true
   end
   return pcall(function()
     buffer.write(unpacker(chunk))
   end)
+end
+
+local function read_binary_chunk(handle)
+  local ok, chunk = pcall(handle.read, IMAGE_FILE_READ_CHUNK)
+  if ok then
+    return chunk
+  end
+  ok, chunk = pcall(handle.read)
+  if ok then
+    return chunk
+  end
+  return nil, chunk
 end
 
 local function read_binary_into_gpu_buffer(gpu, path)
@@ -547,30 +576,25 @@ local function read_binary_into_gpu_buffer(gpu, path)
     return nil, "cannot open " .. path
   end
 
-  local chunk = {}
   while true do
-    local byte = handle.read()
-    if byte == nil then
+    local chunk, read_err = read_binary_chunk(handle)
+    if chunk == nil then
+      if read_err then
+        handle.close()
+        return nil, read_err
+      end
       break
     end
-    if type(byte) == "string" then
-      byte = byte:byte(1)
+    if type(chunk) == "number" then
+      chunk = string.char(chunk)
     end
-    table.insert(chunk, byte)
-    if #chunk >= 512 then
-      local wrote, err = write_buffer_chunk(buffer, chunk)
-      if not wrote then
-        handle.close()
-        return nil, err
-      end
-      chunk = {}
+    local wrote, err = write_buffer_chunk(buffer, chunk)
+    if not wrote then
+      handle.close()
+      return nil, err
     end
   end
   handle.close()
-  local wrote, err = write_buffer_chunk(buffer, chunk)
-  if not wrote then
-    return nil, err
-  end
   return buffer
 end
 
@@ -1451,38 +1475,6 @@ local function draw_dock()
 end
 
 local function draw_top_panel()
-end
-
-local function draw_dock()
-  local screen_width, screen_height = screen_size()
-  draw_top_panel()
-  local dock_width = 7
-  fill(1, 3, dock_width, math.max(1, screen_height - 2), THEME.dock)
-  local compact = screen_height < 25
-  local icon_step = compact and 2 or 3
-  local cursor_top = compact and 3 or 4
-  for _, app_id in ipairs(PINNED) do
-    if cursor_top + 1 >= screen_height then
-      break
-    end
-    draw_dock_icon(3, cursor_top, app_id, "dock_pinned")
-    cursor_top = cursor_top + icon_step
-  end
-  if cursor_top + 1 < screen_height then
-    fill(2, cursor_top, dock_width - 2, 1, colors.black)
-    add_hit("dock_drop_end", 1, cursor_top, dock_width, 1, nil)
-    cursor_top = cursor_top + (compact and 1 or 2)
-  end
-  for _, app_id in ipairs(state.open_dock_order) do
-    if not is_pinned(app_id) and cursor_top + 1 < screen_height then
-      draw_dock_icon(3, cursor_top, app_id, "dock_open")
-      cursor_top = cursor_top + icon_step
-    end
-  end
-  if screen_height > 6 then
-    write_at(2, screen_height, "apps", colors.lightGray, THEME.dock)
-    add_hit("system_menu_toggle", 1, screen_height - 1, dock_width, 2, nil)
-  end
 end
 
 local function draw_window_frame(window_state)
@@ -2804,22 +2796,41 @@ end
 
 local function select_boot_logo(gpu, screen_width, screen_height)
   local candidates = {
-    path_join(ASSETS_DIR, "brand/dock_boot_logo_440.png"),
-    path_join(ASSETS_DIR, "brand/dock_boot_logo_320.png"),
-    path_join(ASSETS_DIR, "brand/dock_boot_logo_220.png"),
-    path_join(ASSETS_DIR, "brand/dock_boot_logo_128.png"),
-    path_join(ASSETS_DIR, "brand/dock_boot_logo.png"),
+    { path = path_join(ASSETS_DIR, "brand/dock_boot_logo_440.png"), width = 440, height = 190 },
+    { path = path_join(ASSETS_DIR, "brand/dock_boot_logo_320.png"), width = 320, height = 138 },
+    { path = path_join(ASSETS_DIR, "brand/dock_boot_logo.png"), width = 320, height = 138 },
+    { path = path_join(ASSETS_DIR, "brand/dock_boot_logo_220.png"), width = 220, height = 95 },
+    { path = path_join(ASSETS_DIR, "brand/dock_boot_logo_128.png"), width = 128, height = 55 },
   }
   local max_width = math.floor(screen_width * 0.82)
   local max_height = math.floor(screen_height * 0.45)
-  for _, path in ipairs(candidates) do
-    local image = load_icon_image(gpu, path)
+  for _, candidate in ipairs(candidates) do
+    if candidate.width > max_width or candidate.height > max_height then
+      candidate.skip = true
+    end
+  end
+  for _, candidate in ipairs(candidates) do
+    if not candidate.skip and fs.exists(candidate.path) and not fs.isDir(candidate.path) then
+      local image = load_icon_image(gpu, candidate.path)
+      if image then
+        local width = image.getWidth and image.getWidth() or candidate.width
+        local height = image.getHeight and image.getHeight() or candidate.height
+        if width > 0 and height > 0 and width <= max_width and height <= max_height then
+          return image, width, height
+        end
+      end
+    end
+  end
+  for _, candidate in ipairs(candidates) do
+    if fs.exists(candidate.path) and not fs.isDir(candidate.path) then
+      local image = load_icon_image(gpu, candidate.path)
     if image then
-      local width = image.getWidth and image.getWidth() or 0
-      local height = image.getHeight and image.getHeight() or 0
+      local width = image.getWidth and image.getWidth() or candidate.width
+      local height = image.getHeight and image.getHeight() or candidate.height
       if width > 0 and height > 0 and width <= max_width and height <= max_height then
         return image, width, height
       end
+    end
     end
   end
   return nil, 0, 0
@@ -2948,6 +2959,34 @@ function draw()
   else
     draw_directgpu()
   end
+end
+
+local function draw_or_stop()
+  local ok, err = pcall(draw)
+  if ok then
+    return true
+  end
+  local message = tostring(err)
+  if state.external.gpu then
+    pcall(render_gpu_error, state.external.gpu, message)
+  end
+  if term then
+    if term.setBackgroundColor then
+      pcall(term.setBackgroundColor, colors.black)
+    end
+    if term.setTextColor then
+      pcall(term.setTextColor, colors.red)
+    end
+    if term.clear then
+      pcall(term.clear)
+    end
+    if term.setCursorPos then
+      pcall(term.setCursorPos, 1, 1)
+    end
+  end
+  print("DockOS render failed:")
+  print(message)
+  return false
 end
 
 local function handle_action(action, payload, mouse_left, mouse_top)
@@ -3211,7 +3250,9 @@ local function run_loop()
   show_boot_splash()
   start_peripheral_scan_timer()
   while true do
-    draw()
+    if not draw_or_stop() then
+      return
+    end
     local event, first, second, third, fourth = os.pullEvent()
     event, first, second, third = normalize_external_event(event, first, second, third, fourth)
     if event == "mouse_click" then
