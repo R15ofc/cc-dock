@@ -37,7 +37,7 @@ Recommended screen size for the current UI is at least a `3x5` Tom bitmap monito
 - Real JPEG/PNG wallpaper loading through Tom GPU `decodeImage`/`drawImage`.
 - Default Pexels mountain wallpaper assets are installed into `/dock/assets`.
 - App icons are generated from Google Material Icons.
-- Release boot splash.
+- Minimal black boot splash with centered white Dock logo and white loading bar.
 - High-resolution Tom GPU renderer with square opaque surfaces and strict Z-order.
 - Square app windows with colored title bars, close, fullscreen, focus, and drag.
 - Pinned taskbar apps plus open-app indicators.

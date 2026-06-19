@@ -21,6 +21,8 @@ local OPTIONAL_ASSETS = {
   { source = "wallpaper-960x540.jpg", target = "/dock/assets/wallpaper-960x540.jpg", binary = true },
   { source = "wallpaper.jpg", target = "/dock/assets/wallpaper.jpg", binary = true },
   { source = "wallpaper.png", target = "/dock/assets/wallpaper.png", binary = true },
+  { source = "brand/dock_boot_logo.png", target = "/dock/assets/brand/dock_boot_logo.png", binary = true },
+  { source = "brand/dock_logo_white.png", target = "/dock/assets/brand/dock_logo_white.png", binary = true },
   { source = "icons/apps.png", target = "/dock/assets/icons/apps.png", binary = true },
   { source = "icons/computer.png", target = "/dock/assets/icons/computer.png", binary = true },
   { source = "icons/docs.png", target = "/dock/assets/icons/docs.png", binary = true },
@@ -44,6 +46,7 @@ local OPTIONAL_ASSETS = {
   { source = "icons/info_tile.png", target = "/dock/assets/icons/info_tile.png", binary = true },
   { source = "icons/search_tile.png", target = "/dock/assets/icons/search_tile.png", binary = true },
   { source = "icons/start_tile.png", target = "/dock/assets/icons/start_tile.png", binary = true },
+  { source = "icons/dock_tile.png", target = "/dock/assets/icons/dock_tile.png", binary = true },
 }
 
 local LEGACY_ASSETS = {

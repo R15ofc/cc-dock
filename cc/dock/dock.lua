@@ -1,4 +1,4 @@
-local VERSION = "1.1.1"
+local VERSION = "1.1.2"
 local LUMA_INSTALLER_URL = "https://raw.githubusercontent.com/R15ofc/cc-luma/main/luma-installer.lua"
 local LUMA_SOURCE_URL = "https://raw.githubusercontent.com/R15ofc/cc-luma/main/cc"
 local DOCS_DIR = "/dock/documents"
@@ -144,7 +144,7 @@ local SETTINGS_TABS = {
 }
 
 local APPS = {
-  launcher = { id = "launcher", name = "Apps", icon = "AP", icon_asset = "apps_tile", color = colors.lightGray },
+  launcher = { id = "launcher", name = "Apps", icon = "D", icon_asset = "dock_tile", color = colors.lightGray },
   finder = { id = "finder", name = "Files", icon = "FS", icon_asset = "folder_tile", color = colors.blue },
   store = { id = "store", name = "Store", icon = "ST", icon_asset = "store_tile", color = colors.cyan },
   docs = { id = "docs", name = "Docs", icon = "DC", icon_asset = "docs_tile", color = colors.orange },
@@ -1317,7 +1317,7 @@ local function draw_dock()
   fill(1, dock_top, screen_width, 2, THEME.dock)
   local start_background = state.system_menu_open and THEME.selected or THEME.window_title
   fill(1, dock_top, 7, 2, start_background)
-  draw_icon_asset(2, dock_top, 3, 2, "start_tile", "[]", foreground_for_background(start_background), start_background)
+  draw_icon_asset(2, dock_top, 3, 2, "dock_tile", "D", foreground_for_background(start_background), start_background)
   add_hit("system_menu_toggle", 1, dock_top, 8, 2, nil)
 
   local search_left = 9
@@ -2564,26 +2564,41 @@ local function show_boot_splash()
   state.boot_splash_done = true
   pcall(function()
     initialize_tom_gpu(false)
-    for step = 1, 4 do
-      render_wallpaper(gpu)
+    local logo_path = path_join(ASSETS_DIR, "brand/dock_boot_logo.png")
+    for step = 1, 5 do
       local screen_width = state.external.pixel_width
       local screen_height = state.external.pixel_height
-      local panel_width = math.min(240, math.floor(screen_width * 0.65))
-      local panel_height = 86
-      local left = math.floor((screen_width - panel_width) / 2)
-      local top = math.floor((screen_height - panel_height) / 2)
-      tom_round_rect(gpu, left + 5, top + 6, panel_width, panel_height, 16, rgb_value(13, 22, 28))
-      tom_round_rect(gpu, left, top, panel_width, panel_height, 16, rgb_value(42, 55, 63))
-      tom_draw_text(gpu, left + 24, top + 20, "DockOS", colors.white, nil)
-      tom_draw_text(gpu, left + 24, top + 40, "Release " .. VERSION, colors.cyan, nil)
-      local bar_width = panel_width - 48
-      local bar_top = top + panel_height - 24
-      tom_round_rect(gpu, left + 24, bar_top, bar_width, 8, 4, rgb_value(19, 30, 35))
-      tom_round_rect(gpu, left + 24, bar_top, math.floor(bar_width * step / 4), 8, 4, rgb_value(90, 200, 250))
+      if gpu.fill then
+        gpu.fill(rgb_value(0, 0, 0))
+      else
+        tom_fill_rgb(gpu, 1, 1, screen_width, screen_height, rgb_value(0, 0, 0))
+      end
+
+      local logo = load_icon_image(gpu, logo_path)
+      local logo_width = logo and logo.getWidth and logo.getWidth() or 0
+      local logo_height = logo and logo.getHeight and logo.getHeight() or 0
+      local logo_left = math.floor((screen_width - logo_width) / 2) + 1
+      local logo_top = math.max(1, math.floor((screen_height - logo_height) / 2) - 22)
+      if logo and logo_width <= screen_width and logo_height <= screen_height and pcall(gpu.drawImage, logo_left, logo_top, logo.ref()) then
+        -- logo drawn
+      else
+        local text = "Dock"
+        local text_left = math.max(1, math.floor(screen_width / 2) - 34)
+        local text_top = math.max(1, math.floor(screen_height / 2) - 24)
+        tom_draw_text(gpu, text_left, text_top, text, colors.white, nil)
+      end
+
+      local bar_width = math.min(180, math.floor(screen_width * 0.48))
+      local bar_height = math.max(3, math.floor(screen_height * 0.014))
+      local bar_left = math.floor((screen_width - bar_width) / 2) + 1
+      local bar_top = math.min(screen_height - bar_height, math.floor(screen_height / 2) + 48)
+      local progress_width = math.max(1, math.floor(bar_width * step / 5))
+      tom_fill_rgb(gpu, bar_left, bar_top, progress_width, bar_height, rgb_value(255, 255, 255))
+
       if gpu.sync then
         gpu.sync()
       end
-      sleep(0.12)
+      sleep(0.11)
     end
   end)
 end
