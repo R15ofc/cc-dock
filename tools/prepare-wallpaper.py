@@ -21,7 +21,7 @@ def cover_resize(image: Image.Image, size: tuple[int, int]) -> Image.Image:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Prepare DockOS wallpaper JPEG assets for Tom's Peripherals GPU.")
+    parser = argparse.ArgumentParser(description="Prepare DockOS wallpaper PNG assets for Tom's Peripherals GPU.")
     parser.add_argument("image", help="Source photo path")
     parser.add_argument("--out", default="assets", help="Output assets directory")
     args = parser.parse_args()
@@ -33,8 +33,8 @@ def main() -> None:
     image = Image.open(source).convert("RGB")
     for size in SIZES:
         prepared = cover_resize(image, size)
-        output = out_dir / f"wallpaper-{size[0]}x{size[1]}.jpg"
-        prepared.save(output, quality=76, optimize=True, progressive=True)
+        output = out_dir / f"wallpaper-{size[0]}x{size[1]}.png"
+        prepared.save(output, optimize=True)
         print(output)
 
 

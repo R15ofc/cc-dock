@@ -1,4 +1,4 @@
-local VERSION = "1.1.3"
+local VERSION = "1.1.4"
 local LUMA_INSTALLER_URL = "https://raw.githubusercontent.com/R15ofc/cc-luma/main/luma-installer.lua"
 local LUMA_SOURCE_URL = "https://raw.githubusercontent.com/R15ofc/cc-luma/main/cc"
 local DOCS_DIR = "/dock/documents"
@@ -947,6 +947,7 @@ local function install_wallpaper_url(url)
   state.wallpaper = nil
   state.wallpaper_key = nil
   state.wallpaper_error = nil
+  state.wallpaper_attempted = false
   return true
 end
 
@@ -2365,21 +2366,13 @@ local function render_wallpaper(gpu)
     local screen_width = state.external.pixel_width
     local screen_height = state.external.pixel_height
     return {
-      path_join(ASSETS_DIR, "wallpaper-" .. tostring(screen_width) .. "x" .. tostring(screen_height) .. ".jpg"),
       path_join(ASSETS_DIR, "wallpaper-" .. tostring(screen_width) .. "x" .. tostring(screen_height) .. ".png"),
-      path_join(ASSETS_DIR, "wallpaper-640x576.jpg"),
       path_join(ASSETS_DIR, "wallpaper-640x576.png"),
-      path_join(ASSETS_DIR, "wallpaper-480x432.jpg"),
       path_join(ASSETS_DIR, "wallpaper-480x432.png"),
-      path_join(ASSETS_DIR, "wallpaper-320x288.jpg"),
       path_join(ASSETS_DIR, "wallpaper-320x288.png"),
-      path_join(ASSETS_DIR, "wallpaper-320x216.jpg"),
       path_join(ASSETS_DIR, "wallpaper-320x216.png"),
-      path_join(ASSETS_DIR, "wallpaper-160x144.jpg"),
       path_join(ASSETS_DIR, "wallpaper-160x144.png"),
-      path_join(ASSETS_DIR, "wallpaper.jpg"),
       path_join(ASSETS_DIR, "wallpaper.png"),
-      "/dock/wallpaper.jpg",
       "/dock/wallpaper.png",
     }
   end
@@ -2529,33 +2522,59 @@ local function op_pixel_rect(op)
   return pixel_left, pixel_top, math.max(0, pixel_width), math.max(0, pixel_height)
 end
 
+local function render_gpu_error(gpu, err)
+  state.external.gpu_error = tostring(err or "render failed")
+  if gpu.fill then
+    pcall(gpu.fill, rgb_value(0, 0, 0))
+  else
+    tom_fill_rgb(gpu, 1, 1, state.external.pixel_width, state.external.pixel_height, rgb_value(0, 0, 0))
+  end
+  tom_draw_text(gpu, 18, 22, "DockOS render error", colors.red, nil)
+  tom_draw_text(gpu, 18, 42, trim(state.external.gpu_error, 70), colors.white, nil)
+  tom_draw_text(gpu, 18, 62, "Run: dock doctor", colors.lightGray, nil)
+  if gpu.sync then
+    pcall(gpu.sync)
+  end
+end
+
 local function render_tom_gpu()
   local gpu = state.external.gpu
   if not state.headless or not gpu then
     return
   end
-  pcall(function()
+  local ok, err = pcall(function()
     initialize_tom_gpu(false)
-    render_wallpaper(gpu)
+    if state.wallpaper or state.wallpaper_attempted then
+      render_wallpaper(gpu)
+    else
+      state.wallpaper_attempted = true
+      if gpu.fill then
+        gpu.fill(rgb_value(10, 15, 18))
+      else
+        tom_fill_rgb(gpu, 1, 1, state.external.pixel_width, state.external.pixel_height, rgb_value(10, 15, 18))
+      end
+    end
     for _, op in ipairs(state.frame_ops or {}) do
-      if should_skip_highres_op(op) then
+      if should_skip_highres_op(op) and state.wallpaper then
         -- wallpaper already drew this surface
       else
-      local pixel_left, pixel_top, pixel_width, pixel_height = op_pixel_rect(op)
-      if op.kind == "fill" then
-        tom_fill_rect(gpu, pixel_left, pixel_top, pixel_width, pixel_height, op.background)
-      elseif op.kind == "text" then
-        local background = op.background
-        tom_draw_text(gpu, pixel_left, pixel_top, op.text, op.foreground, background)
-      elseif op.kind == "image" then
-        render_image_op(gpu, op, pixel_left, pixel_top, pixel_width, pixel_height)
-      end
+        local pixel_left, pixel_top, pixel_width, pixel_height = op_pixel_rect(op)
+        if op.kind == "fill" then
+          tom_fill_rect(gpu, pixel_left, pixel_top, pixel_width, pixel_height, op.background)
+        elseif op.kind == "text" then
+          tom_draw_text(gpu, pixel_left, pixel_top, op.text, op.foreground, op.background)
+        elseif op.kind == "image" then
+          render_image_op(gpu, op, pixel_left, pixel_top, pixel_width, pixel_height)
+        end
       end
     end
     if gpu.sync then
       gpu.sync()
     end
   end)
+  if not ok then
+    render_gpu_error(gpu, err)
+  end
 end
 
 local function select_boot_logo(gpu, screen_width, screen_height)

@@ -34,7 +34,7 @@ Supported Tom bitmap monitor walls: `2x3`, `2x4`, `3x6`, `4x8`; `1x2` has a comp
 - External-display first: no UI is drawn on the PC terminal.
 - Start menu opens from the taskbar and includes Apps, Files, Store, Terminal, Settings, About, reboot, and shutdown.
 - Search box on the taskbar opens app search.
-- Real JPEG/PNG wallpaper loading through Tom GPU `decodeImage`/`drawImage`.
+- Real PNG wallpaper loading through Tom GPU `decodeImage`/`drawImage`.
 - Default Pexels mountain wallpaper assets are installed into `/dock/assets`.
 - App icons are generated from Google Material Icons.
 - Minimal black boot splash with centered white Dock logo and white loading bar.
@@ -102,7 +102,7 @@ python3 tools/prepare-wallpaper.py /path/to/photo.jpg --out assets
 Then push the generated files or install a raw image directly in Minecraft:
 
 ```lua
-dock wallpaper https://example.com/wallpaper-320x216.jpg
+dock wallpaper https://example.com/wallpaper-320x216.png
 ```
 
 `dock doctor` keeps output on the computer terminal and prints attached peripherals,

@@ -11,15 +11,10 @@ local FILES = {
 }
 
 local OPTIONAL_ASSETS = {
-  { source = "wallpaper-160x144.jpg", target = "/dock/assets/wallpaper-160x144.jpg", binary = true },
   { source = "wallpaper-160x144.png", target = "/dock/assets/wallpaper-160x144.png", binary = true },
-  { source = "wallpaper-320x216.jpg", target = "/dock/assets/wallpaper-320x216.jpg", binary = true },
   { source = "wallpaper-320x216.png", target = "/dock/assets/wallpaper-320x216.png", binary = true },
-  { source = "wallpaper-320x288.jpg", target = "/dock/assets/wallpaper-320x288.jpg", binary = true },
   { source = "wallpaper-320x288.png", target = "/dock/assets/wallpaper-320x288.png", binary = true },
-  { source = "wallpaper-480x432.jpg", target = "/dock/assets/wallpaper-480x432.jpg", binary = true },
   { source = "wallpaper-480x432.png", target = "/dock/assets/wallpaper-480x432.png", binary = true },
-  { source = "wallpaper-640x576.jpg", target = "/dock/assets/wallpaper-640x576.jpg", binary = true },
   { source = "wallpaper-640x576.png", target = "/dock/assets/wallpaper-640x576.png", binary = true },
   { source = "brand/dock_boot_logo.png", target = "/dock/assets/brand/dock_boot_logo.png", binary = true },
   { source = "brand/dock_boot_logo_128.png", target = "/dock/assets/brand/dock_boot_logo_128.png", binary = true },
@@ -39,6 +34,11 @@ local OPTIONAL_ASSETS = {
   { source = "icons/search_tile.png", target = "/dock/assets/icons/search_tile.png", binary = true },
 }
 local LEGACY_ASSETS = {
+  "/dock/assets/wallpaper-160x144.jpg",
+  "/dock/assets/wallpaper-320x216.jpg",
+  "/dock/assets/wallpaper-320x288.jpg",
+  "/dock/assets/wallpaper-480x432.jpg",
+  "/dock/assets/wallpaper-640x576.jpg",
   "/dock/assets/wallpaper-480x270.jpg",
   "/dock/assets/wallpaper-480x270.png",
   "/dock/assets/wallpaper-480x360.jpg",
