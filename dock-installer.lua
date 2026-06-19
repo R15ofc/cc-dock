@@ -13,6 +13,7 @@ local FILES = {
 local OPTIONAL_ASSETS = {
   { source = "wallpaper-160x144.png", target = "/dock/assets/wallpaper-160x144.png", binary = true },
   { source = "wallpaper-320x216.png", target = "/dock/assets/wallpaper-320x216.png", binary = true },
+  { source = "wallpaper-382x192.png", target = "/dock/assets/wallpaper-382x192.png", binary = true },
   { source = "wallpaper-320x288.png", target = "/dock/assets/wallpaper-320x288.png", binary = true },
   { source = "wallpaper-480x432.png", target = "/dock/assets/wallpaper-480x432.png", binary = true },
   { source = "wallpaper-640x576.png", target = "/dock/assets/wallpaper-640x576.png", binary = true },
@@ -37,6 +38,7 @@ local LEGACY_ASSETS = {
   "/dock/assets/wallpaper-160x144.jpg",
   "/dock/assets/wallpaper-320x216.jpg",
   "/dock/assets/wallpaper-320x288.jpg",
+  "/dock/assets/wallpaper-382x192.jpg",
   "/dock/assets/wallpaper-480x432.jpg",
   "/dock/assets/wallpaper-640x576.jpg",
   "/dock/assets/wallpaper-480x270.jpg",

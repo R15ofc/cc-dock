@@ -90,7 +90,7 @@ shutdown
 ## Wallpaper Assets
 
 DockOS loads real image files from `/dock/assets`, not a Lua-drawn fake wallpaper.
-Built-in wallpaper assets include exact sizes for `2x3`, `2x4`, `3x6`, and `4x8` Tom bitmap monitor walls, plus a compact `1x2` fallback.
+Built-in wallpaper assets include exact sizes for `2x3`, `2x4`, `3x6`, and `4x8` Tom bitmap monitor walls, the observed `382x192` Tom GPU base size, plus a compact `1x2` fallback.
 Use a direct raw image URL, not a normal web page URL.
 
 Prepare assets on your computer:

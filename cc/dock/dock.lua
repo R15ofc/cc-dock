@@ -1,4 +1,4 @@
-local VERSION = "1.1.5"
+local VERSION = "1.1.6"
 local LUMA_INSTALLER_URL = "https://raw.githubusercontent.com/R15ofc/cc-luma/main/luma-installer.lua"
 local LUMA_SOURCE_URL = "https://raw.githubusercontent.com/R15ofc/cc-luma/main/cc"
 local DOCS_DIR = "/dock/documents"
@@ -2367,6 +2367,7 @@ local function render_wallpaper(gpu)
     local screen_height = state.external.pixel_height
     return {
       path_join(ASSETS_DIR, "wallpaper-" .. tostring(screen_width) .. "x" .. tostring(screen_height) .. ".png"),
+      path_join(ASSETS_DIR, "wallpaper-382x192.png"),
       path_join(ASSETS_DIR, "wallpaper-640x576.png"),
       path_join(ASSETS_DIR, "wallpaper-480x432.png"),
       path_join(ASSETS_DIR, "wallpaper-320x288.png"),

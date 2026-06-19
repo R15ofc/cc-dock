@@ -17,5 +17,6 @@ Generated wallpaper files match the supported Tom bitmap monitor walls:
 - `wallpaper-160x144.png` - compact `1x2` fallback
 - `wallpaper-320x216.png` - `2x3`
 - `wallpaper-320x288.png` - `2x4`
+- `wallpaper-382x192.png` - current Tom GPU base size from `dock doctor`
 - `wallpaper-480x432.png` - `3x6`
 - `wallpaper-640x576.png` - `4x8`
