@@ -1,4 +1,4 @@
-local VERSION = "1.1.4"
+local VERSION = "1.1.5"
 local LUMA_INSTALLER_URL = "https://raw.githubusercontent.com/R15ofc/cc-luma/main/luma-installer.lua"
 local LUMA_SOURCE_URL = "https://raw.githubusercontent.com/R15ofc/cc-luma/main/cc"
 local DOCS_DIR = "/dock/documents"
@@ -2509,14 +2509,18 @@ local function should_skip_highres_op(op)
 end
 
 local function op_pixel_rect(op)
-  local pixel_left = (op.left - 1) * state.external.cell_width + 1
-  local pixel_top = (op.top - 1) * state.external.cell_height + 1
-  local pixel_width = op.width * state.external.cell_width
-  local pixel_height = op.height * state.external.cell_height
-  if op.left + op.width - 1 >= state.virtual_width then
+  local op_left = tonumber(op.left) or 1
+  local op_top = tonumber(op.top) or 1
+  local op_width = tonumber(op.width) or math.max(1, #(op.text or op.fallback or ""))
+  local op_height = tonumber(op.height) or 1
+  local pixel_left = (op_left - 1) * state.external.cell_width + 1
+  local pixel_top = (op_top - 1) * state.external.cell_height + 1
+  local pixel_width = op_width * state.external.cell_width
+  local pixel_height = op_height * state.external.cell_height
+  if op_left + op_width - 1 >= state.virtual_width then
     pixel_width = state.external.pixel_width - pixel_left + 1
   end
-  if op.top + op.height - 1 >= state.virtual_height then
+  if op_top + op_height - 1 >= state.virtual_height then
     pixel_height = state.external.pixel_height - pixel_top + 1
   end
   return pixel_left, pixel_top, math.max(0, pixel_width), math.max(0, pixel_height)
