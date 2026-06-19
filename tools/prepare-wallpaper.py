@@ -7,7 +7,7 @@ try:
 except ImportError as exc:
     raise SystemExit("Pillow is required: python3 -m pip install Pillow") from exc
 
-SIZES = [(320, 216), (480, 360), (800, 480)]
+SIZES = [(320, 216), (480, 270), (480, 360), (640, 360), (800, 360), (800, 480), (960, 540)]
 
 
 def cover_resize(image: Image.Image, size: tuple[int, int]) -> Image.Image:
@@ -21,7 +21,7 @@ def cover_resize(image: Image.Image, size: tuple[int, int]) -> Image.Image:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Prepare DockOS wallpaper PNG assets for Tom's Peripherals GPU.")
+    parser = argparse.ArgumentParser(description="Prepare DockOS wallpaper JPEG assets for Tom's Peripherals GPU.")
     parser.add_argument("image", help="Source photo path")
     parser.add_argument("--out", default="assets", help="Output assets directory")
     args = parser.parse_args()
@@ -34,14 +34,14 @@ def main() -> None:
     fallback = None
     for size in SIZES:
         prepared = cover_resize(image, size)
-        output = out_dir / f"wallpaper-{size[0]}x{size[1]}.png"
-        prepared.save(output, optimize=True)
+        output = out_dir / f"wallpaper-{size[0]}x{size[1]}.jpg"
+        prepared.save(output, quality=76, optimize=True, progressive=True)
         fallback = fallback or prepared
         print(output)
 
     if fallback is not None:
-        fallback.save(out_dir / "wallpaper.png", optimize=True)
-        print(out_dir / "wallpaper.png")
+        fallback.save(out_dir / "wallpaper.jpg", quality=76, optimize=True, progressive=True)
+        print(out_dir / "wallpaper.jpg")
 
 
 if __name__ == "__main__":

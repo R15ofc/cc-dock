@@ -1,4 +1,4 @@
-local VERSION = "1.0.0"
+local VERSION = "1.1.0"
 local LUMA_INSTALLER_URL = "https://raw.githubusercontent.com/R15ofc/cc-luma/main/luma-installer.lua"
 local LUMA_SOURCE_URL = "https://raw.githubusercontent.com/R15ofc/cc-luma/main/cc"
 local DOCS_DIR = "/dock/documents"
@@ -135,31 +135,42 @@ local THEME_PRESETS = {
 }
 
 local THEME_ORDER = { "win10", "dark", "forest", "purple" }
+local SETTINGS_TABS = {
+  { id = "general", label = "General" },
+  { id = "theme", label = "Theme" },
+  { id = "devices", label = "Devices" },
+  { id = "privacy", label = "Privacy" },
+  { id = "power", label = "Power" },
+}
 
 local APPS = {
-  launcher = { id = "launcher", name = "Launchpad", icon = "AP", color = colors.lightGray },
-  finder = { id = "finder", name = "Files", icon = "FS", color = colors.blue },
-  store = { id = "store", name = "Store", icon = "ST", color = colors.cyan },
-  docs = { id = "docs", name = "Documents", icon = "DC", color = colors.lightBlue },
-  paint = { id = "paint", name = "Paint", icon = "PT", color = colors.pink },
-  settings = { id = "settings", name = "Settings", icon = "SG", color = colors.orange },
-  luma = { id = "luma", name = "Luma", icon = "LM", color = colors.purple },
-  terminal = { id = "terminal", name = "Terminal", icon = ">_", color = colors.green },
+  launcher = { id = "launcher", name = "Apps", icon = "AP", icon_asset = "apps", color = colors.lightGray },
+  finder = { id = "finder", name = "Files", icon = "FS", icon_asset = "folder", color = colors.blue },
+  store = { id = "store", name = "Store", icon = "ST", icon_asset = "store", color = colors.cyan },
+  docs = { id = "docs", name = "Docs", icon = "DC", icon_asset = "docs", color = colors.orange },
+  paint = { id = "paint", name = "Paint", icon = "PT", icon_asset = "paint", color = colors.pink },
+  settings = { id = "settings", name = "Settings", icon = "SG", icon_asset = "settings", color = colors.orange },
+  luma = { id = "luma", name = "Luma", icon = "LM", icon_asset = "luma", color = colors.purple },
+  terminal = { id = "terminal", name = "Terminal", icon = ">_", icon_asset = "terminal", color = colors.green },
 }
 
 local PINNED = { "launcher", "finder", "store", "docs", "paint", "settings", "luma", "terminal" }
 
 local STORE_APPS = {
-  { id = "docs", name = "Documents", trust = "built-in", description = "Write documents and print them." },
-  { id = "paint", name = "Paint", trust = "built-in", description = "Simple pixel drawing studio." },
+  { id = "docs", name = "Docs", trust = "built-in", popular = true, description = "Write documents and print them." },
+  { id = "paint", name = "Paint", trust = "built-in", popular = true, description = "Draw images on a wide canvas." },
   {
     id = "luma",
     name = "Luma Browser",
     trust = "verified",
+    popular = true,
     description = "Browser for Luma pages and internet gateway.",
     installer = LUMA_INSTALLER_URL,
     source = LUMA_SOURCE_URL,
   },
+  { id = "finder", name = "Files", trust = "built-in", description = "Browse, create, rename, and delete files." },
+  { id = "terminal", name = "Terminal", trust = "built-in", description = "Run DockOS shell commands." },
+  { id = "settings", name = "Settings", trust = "built-in", description = "Themes, display, speakers, printer, security." },
 }
 
 local state = {
@@ -176,9 +187,15 @@ local state = {
   file_preview = nil,
   docs_selected = nil,
   docs_preview = "",
+  docs_scroll = 0,
+  docs_menu_open = false,
   paint_color = colors.white,
   paint_cells = {},
   settings_message = "",
+  settings_tab = "general",
+  app_search_query = "",
+  store_search_query = "",
+  store_scroll = 0,
   toast = "",
   modal = nil,
   input = nil,
@@ -191,6 +208,7 @@ local state = {
   wallpaper = nil,
   wallpaper_key = nil,
   wallpaper_error = nil,
+  icon_cache = {},
   directgpu = nil,
   headless = true,
   frame_ops = {},
@@ -287,6 +305,36 @@ local function foreground_for_background(background)
     return colors.black
   end
   return colors.white
+end
+
+local function contains_text(text, query)
+  query = tostring(query or ""):lower()
+  if query == "" then
+    return true
+  end
+  return tostring(text or ""):lower():find(query, 1, true) ~= nil
+end
+
+local function wrap_text(text, width)
+  local lines = {}
+  width = math.max(1, tonumber(width) or 1)
+  for raw_line in (tostring(text or "") .. "\n"):gmatch("(.-)\n") do
+    local line = raw_line
+    while #line > width do
+      local chunk = line:sub(1, width)
+      local split_at = chunk:match("^.*()%s+")
+      if not split_at or split_at < math.floor(width * 0.45) then
+        split_at = width
+      end
+      table.insert(lines, line:sub(1, split_at):gsub("%s+$", ""))
+      line = line:sub(split_at + 1):gsub("^%s+", "")
+    end
+    table.insert(lines, line)
+  end
+  if #lines == 0 then
+    table.insert(lines, "")
+  end
+  return lines
 end
 
 local function queue_frame_op(op)
@@ -639,6 +687,10 @@ local function download_to_file(url, path)
     end
     if type(chunk) == "number" then
       output.write(string.char(chunk))
+    elseif type(chunk) == "table" then
+      for _, byte in ipairs(chunk) do
+        output.write(string.char(byte))
+      end
     else
       output.write(chunk)
     end
@@ -1136,6 +1188,42 @@ local function draw_button(action, left, top, label, payload, background)
   return width
 end
 
+local function icon_asset_path(icon_id)
+  return path_join(path_join(ASSETS_DIR, "icons"), tostring(icon_id or "apps") .. ".png")
+end
+
+local function draw_icon_asset(left, top, width, height, icon_id, fallback, foreground, background)
+  if background then
+    fill(left, top, width, height, background)
+  end
+  if state.headless then
+    queue_frame_op({
+      kind = "image",
+      left = left,
+      top = top,
+      width = width,
+      height = height,
+      path = icon_asset_path(icon_id),
+      fallback = tostring(fallback or ""),
+      foreground = foreground or foreground_for_background(background),
+      background = background,
+    })
+  else
+    local text_left = left + math.max(0, math.floor((width - #(fallback or "")) / 2))
+    local text_top = top + math.max(0, math.floor((height - 1) / 2))
+    write_at(text_left, text_top, tostring(fallback or ""), foreground or foreground_for_background(background), background)
+  end
+end
+
+local function draw_app_icon(left, top, app, width, height, action, payload)
+  local icon_width = width or 4
+  local icon_height = height or 2
+  draw_icon_asset(left, top, icon_width, icon_height, app.icon_asset, app.icon, foreground_for_background(app.color), app.color)
+  if action then
+    add_hit(action, left, top, icon_width, icon_height, payload or app.id)
+  end
+end
+
 local function draw_menu_bar()
 end
 
@@ -1147,7 +1235,7 @@ local function draw_system_menu()
   local left = 1
   local width = math.min(32, screen_width)
   local height = math.min(13, math.max(8, screen_height - 3))
-  local taskbar_top = math.max(1, screen_height - 2)
+  local taskbar_top = math.max(1, screen_height - 1)
   local top = math.max(1, taskbar_top - height)
   fill(left + 1, top + 1, math.max(1, width - 1), height, colors.black)
   fill(left, top, width, height, THEME.surface)
@@ -1171,15 +1259,17 @@ local function draw_desktop()
     { app = "store", name = "Store", icon = "ST" },
     { app = "docs", name = "Docs", icon = "DC" },
     { app = "paint", name = "Paint", icon = "PT" },
-    { action = "system_about", name = "About", icon = "i" },
+    { action = "system_about", name = "About", icon = "i", icon_asset = "info", color = colors.gray },
   }
   local left = 3
   local top = 2
   for _, item in ipairs(desktop_icons) do
     local app = item.app and APPS[item.app] or nil
-    local icon_color = app and app.color or THEME.accent
-    fill(left + 2, top, 4, 2, icon_color)
-    write_at(left + 3, top, trim(item.icon, 2), colors.white, icon_color)
+    if app then
+      draw_app_icon(left + 2, top, app, 4, 2, nil, nil)
+    else
+      draw_icon_asset(left + 2, top, 4, 2, item.icon_asset, item.icon, foreground_for_background(item.color), item.color)
+    end
     write_at(left, top + 2, trim(item.name, 12), colors.white, nil)
     add_hit(item.action or "desktop_app", left, top, 12, 3, item.app)
     top = top + 4
@@ -1206,7 +1296,7 @@ local function draw_dock_icon(left, top, app_id, action)
   end
   local icon_background = is_open_dock_app(app_id) and THEME.selected or THEME.dock
   fill(left, top, 4, 2, icon_background)
-  write_at(left + 1, top, app.icon, colors.white, icon_background)
+  draw_icon_asset(left, top, 4, 2, app.icon_asset, app.icon, colors.white, icon_background)
   if is_open_dock_app(app_id) then
     write_at(left + 1, top + 1, "  ", colors.white, app.color)
   end
@@ -1215,19 +1305,20 @@ end
 
 local function draw_dock()
   local screen_width, screen_height = screen_size()
-  local dock_top = math.max(1, screen_height - 2)
-  fill(1, dock_top, screen_width, 3, THEME.dock)
+  local dock_top = math.max(1, screen_height - 1)
+  fill(1, dock_top, screen_width, 2, THEME.dock)
   local start_background = state.system_menu_open and THEME.selected or THEME.window_title
-  fill(1, dock_top, 8, 3, start_background)
-  write_at(2, dock_top + 1, "Start", foreground_for_background(start_background), start_background)
-  add_hit("system_menu_toggle", 1, dock_top, 8, 3, nil)
+  fill(1, dock_top, 7, 2, start_background)
+  draw_icon_asset(2, dock_top, 3, 1, "start", "[]", foreground_for_background(start_background), start_background)
+  add_hit("system_menu_toggle", 1, dock_top, 8, 2, nil)
 
-  local search_left = 10
-  local search_width = math.min(24, math.max(10, math.floor(screen_width / 4)))
+  local search_left = 9
+  local search_width = math.min(28, math.max(12, math.floor(screen_width / 4)))
   if search_left + search_width + 10 < screen_width then
-    fill(search_left, dock_top, search_width, 3, THEME.field)
-    write_at(search_left + 1, dock_top + 1, trim("Search DockOS", search_width - 2), colors.lightGray, THEME.field)
-    add_hit("system_open", search_left, dock_top, search_width, 3, "launcher")
+    fill(search_left, dock_top, search_width, 2, THEME.field)
+    draw_icon_asset(search_left + 1, dock_top, 3, 1, "search", "?", colors.lightGray, THEME.field)
+    write_at(search_left + 5, dock_top, trim("Search apps", search_width - 6), colors.lightGray, THEME.field)
+    add_hit("app_search_prompt", search_left, dock_top, search_width, 2, nil)
   else
     search_width = 0
   end
@@ -1237,15 +1328,15 @@ local function draw_dock()
     if cursor_left + 5 >= screen_width - 14 then
       break
     end
-    draw_dock_icon(cursor_left, dock_top + 1, app_id, "dock_pinned")
+    draw_dock_icon(cursor_left, dock_top, app_id, "dock_pinned")
     cursor_left = cursor_left + 5
   end
-  write_at(cursor_left, dock_top + 1, "|", colors.lightGray, THEME.dock)
-  add_hit("dock_drop_end", cursor_left, dock_top, 2, 3, nil)
+  write_at(cursor_left, dock_top, "|", colors.lightGray, THEME.dock)
+  add_hit("dock_drop_end", cursor_left, dock_top, 2, 2, nil)
   cursor_left = cursor_left + 2
   for _, app_id in ipairs(state.open_dock_order) do
     if not is_pinned(app_id) and cursor_left + 5 < screen_width - 14 then
-      draw_dock_icon(cursor_left, dock_top + 1, app_id, "dock_open")
+      draw_dock_icon(cursor_left, dock_top, app_id, "dock_open")
       cursor_left = cursor_left + 5
     end
   end
@@ -1253,8 +1344,8 @@ local function draw_dock()
   local clock = textutils and textutils.formatTime and textutils.formatTime(os.time(), true) or ""
   local tray = "NET VOL " .. clock
   if screen_width > #tray + 2 then
-    write_at(screen_width - #tray, dock_top + 1, tray, colors.lightGray, THEME.dock)
-    add_hit("system_open", screen_width - #tray, dock_top, #tray + 1, 3, "settings")
+    write_at(screen_width - #tray, dock_top, tray, colors.lightGray, THEME.dock)
+    add_hit("system_open", screen_width - #tray, dock_top, #tray + 1, 2, "settings")
   end
 end
 
@@ -1504,43 +1595,58 @@ end
 
 local function draw_documents(window_state)
   local left, top, width, height = content_rect(window_state)
+  fill(left, top, width, height, colors.lightGray)
+  fill(left, top, width, 2, colors.white)
   local cursor_left = left + 1
-  cursor_left = cursor_left + draw_button("doc_new", cursor_left, top, "New", nil, THEME.button) + 1
+  cursor_left = cursor_left + draw_button("doc_menu_toggle", cursor_left, top, "File", nil, colors.orange) + 1
   cursor_left = cursor_left + draw_button("doc_edit", cursor_left, top, "Edit", nil, colors.gray) + 1
-  cursor_left = cursor_left + draw_button("doc_print", cursor_left, top, "Print", nil, colors.purple) + 1
+  cursor_left = cursor_left + draw_button("doc_print", cursor_left, top, "Print", nil, colors.gray) + 1
   draw_button("doc_delete", cursor_left, top, "Delete", nil, THEME.danger)
 
   local list_left = left + 1
-  local list_top = top + 2
-  local list_width = math.max(18, math.floor(width * 0.35))
-  local preview_left = list_left + list_width + 2
-  local preview_width = width - list_width - 4
-  local visible_rows = height - 3
-  fill(list_left, list_top, list_width, visible_rows, THEME.field)
-  fill(preview_left, list_top, preview_width, visible_rows, THEME.field)
-
+  local list_top = top + 3
+  local list_width = math.max(16, math.floor(width * 0.25))
+  local list_height = height - 4
+  fill(list_left, list_top, list_width, list_height, colors.gray)
+  write_at(list_left + 1, list_top, "Docs", colors.white, colors.gray)
   for row_index, doc in ipairs(docs_list()) do
-    if row_index > visible_rows then
+    if row_index >= list_height then
       break
     end
+    local row_top = list_top + row_index
     local selected = state.docs_selected == doc.path
-    local row_background = selected and THEME.selected or THEME.field
-    fill(list_left, list_top + row_index - 1, list_width, 1, row_background)
-    write_at(list_left + 1, list_top + row_index - 1, trim(doc.name, list_width - 2), colors.white, row_background)
-    add_hit("doc_select", list_left, list_top + row_index - 1, list_width, 1, doc.path)
+    local row_background = selected and colors.orange or colors.gray
+    fill(list_left, row_top, list_width, 1, row_background)
+    write_at(list_left + 1, row_top, trim(doc.name, list_width - 2), foreground_for_background(row_background), row_background)
+    add_hit("doc_select", list_left, row_top, list_width, 1, doc.path)
   end
 
+  local paper_width = math.min(math.max(20, width - list_width - 6), 52)
+  local paper_height = math.max(8, height - 6)
+  local paper_left = list_left + list_width + math.max(2, math.floor((width - list_width - paper_width - 2) / 2))
+  local paper_top = top + 3
+  fill(paper_left + 1, paper_top + 1, paper_width, paper_height, colors.gray)
+  fill(paper_left, paper_top, paper_width, paper_height, colors.white)
   if state.docs_selected then
-    write_at(preview_left + 1, list_top, trim(basename(state.docs_selected), preview_width - 2), colors.white, THEME.field)
-    local preview_top = list_top + 2
+    write_at(paper_left + 2, paper_top + 1, trim(basename(state.docs_selected), paper_width - 4), colors.black, colors.white)
     local body = state.docs_preview ~= "" and state.docs_preview or read_file(state.docs_selected) or ""
-    for line in (body .. "\n"):gmatch("(.-)\n") do
-      if preview_top >= list_top + visible_rows then
+    local lines = wrap_text(body, paper_width - 4)
+    local visible_rows = paper_height - 4
+    for row_index = 1, visible_rows do
+      local line = lines[row_index + state.docs_scroll]
+      if not line then
         break
       end
-      write_at(preview_left + 1, preview_top, trim(line, preview_width - 2), colors.lightGray, THEME.field)
-      preview_top = preview_top + 1
+      write_at(paper_left + 2, paper_top + 2 + row_index, trim(line, paper_width - 4), colors.black, colors.white)
     end
+  else
+    write_at(paper_left + 2, paper_top + 2, "Select or create a document.", colors.gray, colors.white)
+  end
+  if state.docs_menu_open then
+    fill(left + 1, top + 1, 15, 4, colors.white)
+    draw_button("doc_new", left + 2, top + 2, "New", nil, colors.orange)
+    draw_button("doc_edit", left + 2, top + 3, "Edit", nil, colors.gray)
+    draw_button("doc_print", left + 2, top + 4, "Print", nil, colors.gray)
   end
 end
 
@@ -1558,7 +1664,7 @@ local function paint_key(col, row)
 end
 
 local function paint_cell(col, row)
-  return state.paint_cells[paint_key(col, row)] or colors.black
+  return state.paint_cells[paint_key(col, row)] or colors.white
 end
 
 local function set_paint_cell(col, row, color)
@@ -1575,9 +1681,9 @@ local function save_painting()
       name = name .. ".txt"
     end
     local lines = {}
-    for row = 1, 12 do
+    for row = 1, 14 do
       local parts = {}
-      for col = 1, 24 do
+      for col = 1, 42 do
         table.insert(parts, tostring(paint_cell(col, row)))
       end
       table.insert(lines, table.concat(parts, ","))
@@ -1589,15 +1695,17 @@ end
 
 local function draw_paint(window_state)
   init_paint()
-  local left, top, width = content_rect(window_state)
+  local left, top, width, height = content_rect(window_state)
+  fill(left, top, width, height, colors.lightGray)
+  fill(left, top, width, 2, colors.white)
   local cursor_left = left + 1
   cursor_left = cursor_left + draw_button("paint_clear", cursor_left, top, "Clear", nil, colors.gray) + 1
-  cursor_left = cursor_left + draw_button("paint_save", cursor_left, top, "Save", nil, THEME.button) + 1
-  write_at(cursor_left, top, "Color", colors.lightGray, THEME.window)
+  cursor_left = cursor_left + draw_button("paint_save", cursor_left, top, "Save", nil, colors.orange) + 1
+  write_at(cursor_left, top, "Color", colors.black, colors.white)
 
   local palette = { colors.white, colors.lightGray, colors.gray, colors.black, colors.red, colors.orange, colors.yellow, colors.lime, colors.green, colors.cyan, colors.blue, colors.purple, colors.pink, colors.brown }
   local palette_left = left + 1
-  local palette_top = top + 2
+  local palette_top = top + 3
   for index, color in ipairs(palette) do
     local cell_left = palette_left + ((index - 1) % 7) * 3
     local cell_top = palette_top + math.floor((index - 1) / 7)
@@ -1605,10 +1713,12 @@ local function draw_paint(window_state)
     add_hit("paint_color", cell_left, cell_top, 2, 1, color)
   end
 
-  local canvas_left = left + 1
-  local canvas_top = top + 5
-  local canvas_width = math.min(24, width - 2)
-  local canvas_height = 12
+  local canvas_width = math.min(42, width - 4)
+  local canvas_height = math.min(14, height - 7)
+  local canvas_left = left + math.max(2, math.floor((width - canvas_width) / 2))
+  local canvas_top = top + 6
+  fill(canvas_left + 1, canvas_top + 1, canvas_width, canvas_height, colors.gray)
+  fill(canvas_left, canvas_top, canvas_width, canvas_height, colors.white)
   for row = 1, canvas_height do
     for col = 1, canvas_width do
       fill(canvas_left + col - 1, canvas_top + row - 1, 1, 1, paint_cell(col, row))
@@ -1625,22 +1735,56 @@ local function trust_color(app)
 end
 
 local function draw_store(window_state)
-  local left, top, width = content_rect(window_state)
-  local row_top = top
+  local left, top, width, height = content_rect(window_state)
+  fill(left, top, width, height, colors.black)
+  fill(left + 1, top, width - 2, 3, THEME.field)
+  draw_icon_asset(left + 2, top + 1, 3, 1, "search", "?", colors.lightGray, THEME.field)
+  write_at(left + 6, top + 1, trim(state.store_search_query ~= "" and state.store_search_query or "Search apps in Store", width - 16), colors.lightGray, THEME.field)
+  draw_button("store_search_prompt", left + width - 10, top + 1, "Search", nil, THEME.button)
+
+  local filtered = {}
   for _, app in ipairs(STORE_APPS) do
-    if row_top + 4 >= top + window_state.height - 3 then
-      break
+    if contains_text(app.name .. " " .. app.description .. " " .. app.id, state.store_search_query) then
+      table.insert(filtered, app)
     end
-    fill(left + 1, row_top, width - 2, 4, THEME.field)
-    fill(left + 1, row_top, 2, 4, trust_color(app))
-    write_at(left + 4, row_top, trim(app.name, width - 18), colors.white, THEME.field)
-    write_at(left + 4, row_top + 1, trim(app.description, width - 8), colors.lightGray, THEME.field)
-    write_at(left + 4, row_top + 2, string.upper(app.trust), trust_color(app), THEME.field)
-    local built_in = app.trust == "built-in"
-    local installed = built_in or app.id == "luma" and luma_installed()
-    local label = installed and "Open" or "Install"
-    draw_button(installed and "store_open" or "store_install", left + width - 11, row_top + 1, label, app, installed and colors.purple or THEME.button)
-    row_top = row_top + 5
+  end
+
+  write_at(left + 1, top + 4, "Popular", colors.white, colors.black)
+  local card_top = top + 5
+  local card_width = math.max(14, math.floor((width - 4) / 3))
+  local card_height = 7
+  local cards_drawn = 0
+  for _, store_app in ipairs(filtered) do
+    if store_app.popular and cards_drawn < 3 then
+      local card_left = left + 1 + cards_drawn * (card_width + 1)
+      fill(card_left, card_top, card_width, card_height, THEME.field)
+      local app = APPS[store_app.id] or APPS.store
+      draw_app_icon(card_left + math.floor((card_width - 4) / 2), card_top + 1, app, 4, 2, nil, nil)
+      write_at(card_left + 1, card_top + 3, trim(store_app.name, card_width - 2), colors.white, THEME.field)
+      write_at(card_left + 1, card_top + 4, trim(store_app.description, card_width - 2), colors.lightGray, THEME.field)
+      local installed = store_app.trust == "built-in" or store_app.id == "luma" and luma_installed()
+      draw_button(installed and "store_open" or "store_install", card_left + 1, card_top + 5, installed and "Open" or "Install", store_app, installed and colors.purple or THEME.button)
+      cards_drawn = cards_drawn + 1
+    end
+  end
+
+  local row_top = card_top + card_height + 2
+  write_at(left + 1, row_top - 1, "More apps", colors.white, colors.black)
+  for _, store_app in ipairs(filtered) do
+    if not store_app.popular then
+      if row_top + 3 >= top + height then
+        break
+      end
+      fill(left + 1, row_top, width - 2, 3, THEME.field)
+      local app = APPS[store_app.id] or APPS.store
+      draw_app_icon(left + 2, row_top + 1, app, 4, 2, nil, nil)
+      write_at(left + 7, row_top, trim(store_app.name, width - 20), colors.white, THEME.field)
+      write_at(left + 7, row_top + 1, trim(store_app.description, width - 20), colors.lightGray, THEME.field)
+      write_at(left + 7, row_top + 2, string.upper(store_app.trust), trust_color(store_app), THEME.field)
+      local installed = store_app.trust == "built-in" or store_app.id == "luma" and luma_installed()
+      draw_button(installed and "store_open" or "store_install", left + width - 11, row_top + 1, installed and "Open" or "Install", store_app, installed and colors.purple or THEME.button)
+      row_top = row_top + 4
+    end
   end
 end
 
@@ -1724,60 +1868,105 @@ end
 
 local function draw_settings(window_state)
   local left, top, width, height = content_rect(window_state)
-  local cursor_left = left + 1
-  cursor_left = cursor_left + draw_button("settings_gpu", cursor_left, top, "Rescan", nil, THEME.button) + 1
-  cursor_left = cursor_left + draw_button("settings_monitor", cursor_left, top, "Display", nil, colors.gray) + 1
-  cursor_left = cursor_left + draw_button("settings_speaker", cursor_left, top, "Speaker", nil, colors.gray) + 1
-  cursor_left = cursor_left + draw_button("settings_printer", cursor_left, top, "Printer", nil, colors.gray) + 1
-  cursor_left = cursor_left + draw_button("system_reboot", cursor_left, top, "Reboot", nil, colors.orange) + 1
-  draw_button("system_shutdown", cursor_left, top, "Power", nil, THEME.danger)
-  write_at(left + 1, top + 2, trim(state.settings_message, width - 2), colors.cyan, THEME.window)
-  write_at(left + 1, top + 4, "System", colors.white, THEME.window)
-  write_at(left + 1, top + 5, "DockOS " .. VERSION, colors.lightGray, THEME.window)
-  write_at(left + 1, top + 6, "Screen " .. tostring(state.external.pixel_width) .. "x" .. tostring(state.external.pixel_height), colors.lightGray, THEME.window)
-  write_at(left + 1, top + 7, "Wallpaper " .. (state.wallpaper and "image" or tostring(state.wallpaper_error or "waiting")), colors.lightGray, THEME.window)
-  write_at(left + 1, top + 9, "Theme: " .. tostring(state.theme_id or "win10"), colors.white, THEME.window)
-  local theme_left = left + 1
-  for _, theme_id in ipairs(THEME_ORDER) do
-    local preset = THEME_PRESETS[theme_id]
-    if preset then
-      theme_left = theme_left + draw_button("theme_set", theme_left, top + 10, preset.name, theme_id, preset.color) + 1
-    end
+  local tabs_width = math.min(20, math.max(14, math.floor(width * 0.32)))
+  fill(left, top, width, height, colors.black)
+  fill(left, top, tabs_width, height, colors.gray)
+  fill(left + tabs_width, top, width - tabs_width, height, THEME.field)
+  write_at(left + 1, top, "Settings", colors.white, colors.gray)
+  local tab_top = top + 2
+  for _, tab in ipairs(SETTINGS_TABS) do
+    local selected = state.settings_tab == tab.id
+    local row_background = selected and THEME.window_title or colors.gray
+    fill(left + 1, tab_top, tabs_width - 2, 1, row_background)
+    write_at(left + 2, tab_top, trim(tab.label, tabs_width - 4), foreground_for_background(row_background), row_background)
+    add_hit("settings_tab", left + 1, tab_top, tabs_width - 2, 1, tab.id)
+    tab_top = tab_top + 2
   end
-  write_at(left + 1, top + 12, "Peripherals", colors.white, THEME.window)
-  local row_top = top + 14
-  for _, row in ipairs(peripheral_rows()) do
-    if row_top >= top + height then
-      break
+
+  local content_left = left + tabs_width + 2
+  local content_top = top + 1
+  local content_width = width - tabs_width - 3
+  write_at(content_left, content_top, trim(state.settings_message, content_width), colors.cyan, THEME.field)
+  if state.settings_tab == "general" then
+    write_at(content_left, content_top + 2, "General", colors.white, THEME.field)
+    write_at(content_left, content_top + 4, "DockOS " .. VERSION, colors.lightGray, THEME.field)
+    write_at(content_left, content_top + 5, "Screen " .. tostring(state.external.pixel_width) .. "x" .. tostring(state.external.pixel_height), colors.lightGray, THEME.field)
+    write_at(content_left, content_top + 6, "Wallpaper " .. (state.wallpaper and "image" or tostring(state.wallpaper_error or "waiting")), colors.lightGray, THEME.field)
+    draw_button("settings_gpu", content_left, content_top + 8, "Rescan display", nil, THEME.button)
+  elseif state.settings_tab == "theme" then
+    write_at(content_left, content_top + 2, "Theme", colors.white, THEME.field)
+    write_at(content_left, content_top + 4, "Current: " .. tostring(state.theme_id or "win10"), colors.lightGray, THEME.field)
+    local theme_top = content_top + 6
+    for _, theme_id in ipairs(THEME_ORDER) do
+      local preset = THEME_PRESETS[theme_id]
+      if preset then
+        draw_button("theme_set", content_left, theme_top, preset.name, theme_id, preset.color)
+        theme_top = theme_top + 2
+      end
     end
-    write_at(left + 1, row_top, pad(row.name, 18), colors.white, THEME.window)
-    write_at(left + 21, row_top, trim(row.kind, width - 22), colors.lightGray, THEME.window)
-    row_top = row_top + 1
+  elseif state.settings_tab == "devices" then
+    write_at(content_left, content_top + 2, "Devices", colors.white, THEME.field)
+    local button_left = content_left
+    button_left = button_left + draw_button("settings_monitor", button_left, content_top + 4, "Display", nil, colors.gray) + 1
+    button_left = button_left + draw_button("settings_speaker", button_left, content_top + 4, "Speaker", nil, colors.gray) + 1
+    draw_button("settings_printer", button_left, content_top + 4, "Printer", nil, colors.gray)
+    local row_top = content_top + 7
+    for _, row in ipairs(peripheral_rows()) do
+      if row_top >= top + height then
+        break
+      end
+      write_at(content_left, row_top, pad(row.name, 18), colors.white, THEME.field)
+      write_at(content_left + 20, row_top, trim(row.kind, content_width - 21), colors.lightGray, THEME.field)
+      row_top = row_top + 1
+    end
+  elseif state.settings_tab == "privacy" then
+    write_at(content_left, content_top + 2, "Privacy & Security", colors.white, THEME.field)
+    write_at(content_left, content_top + 4, "DockOS does not collect chat or private data.", colors.lightGray, THEME.field)
+    write_at(content_left, content_top + 5, "App trust is shown in Store before install.", colors.lightGray, THEME.field)
+  elseif state.settings_tab == "power" then
+    write_at(content_left, content_top + 2, "Power", colors.white, THEME.field)
+    local button_left = content_left
+    button_left = button_left + draw_button("system_reboot", button_left, content_top + 4, "Reboot", nil, colors.orange) + 1
+    draw_button("system_shutdown", button_left, content_top + 4, "Power off", nil, THEME.danger)
   end
 end
 
 local function draw_launcher(window_state)
   local left, top, width, height = content_rect(window_state)
-  write_at(left + 1, top, "Applications", colors.cyan, THEME.window)
+  fill(left, top, width, height, colors.black)
+  fill(left + 1, top, width - 2, 3, THEME.field)
+  draw_icon_asset(left + 2, top + 1, 3, 1, "search", "?", colors.lightGray, THEME.field)
+  write_at(left + 6, top + 1, trim(state.app_search_query ~= "" and state.app_search_query or "Search apps", width - 16), colors.lightGray, THEME.field)
+  draw_button("app_search_prompt", left + width - 10, top + 1, "Search", nil, THEME.button)
+  if state.app_search_query ~= "" then
+    draw_button("app_search_clear", left + width - 18, top + 1, "Clear", nil, colors.gray)
+  end
   local apps = {}
   for app_id, app in pairs(APPS) do
-    table.insert(apps, { id = app_id, app = app })
+    if contains_text(app.name .. " " .. app_id, state.app_search_query) then
+      table.insert(apps, { id = app_id, app = app })
+    end
   end
   table.sort(apps, function(left_app, right_app)
     return left_app.app.name < right_app.app.name
   end)
-  local row_top = top + 2
+  local card_width = 12
+  local card_height = 5
+  local columns = math.max(1, math.floor((width - 2) / (card_width + 1)))
+  local index = 0
   for _, item in ipairs(apps) do
-    if row_top >= top + height then
+    local col = index % columns
+    local row = math.floor(index / columns)
+    local card_left = left + 1 + col * (card_width + 1)
+    local card_top = top + 4 + row * (card_height + 1)
+    if card_top + card_height > top + height then
       break
     end
-    fill(left + 1, row_top, width - 2, 2, THEME.field)
-    fill(left + 1, row_top, 4, 2, item.app.color)
-    write_at(left + 2, row_top, item.app.icon, colors.white, item.app.color)
-    write_at(left + 6, row_top, item.app.name, colors.white, THEME.field)
-    write_at(left + 6, row_top + 1, item.id, colors.lightGray, THEME.field)
-    draw_button("launcher_open", left + width - 9, row_top, "Open", item.id, THEME.button)
-    row_top = row_top + 3
+    fill(card_left, card_top, card_width, card_height, THEME.field)
+    draw_app_icon(card_left + 4, card_top + 1, item.app, 4, 2, nil, nil)
+    write_at(card_left + 1, card_top + 3, trim(item.app.name, card_width - 2), colors.white, THEME.field)
+    add_hit("launcher_open", card_left, card_top, card_width, card_height, item.id)
+    index = index + 1
   end
 end
 
@@ -2168,9 +2357,19 @@ local function render_wallpaper(gpu)
     local screen_width = state.external.pixel_width
     local screen_height = state.external.pixel_height
     return {
+      path_join(ASSETS_DIR, "wallpaper-" .. tostring(screen_width) .. "x" .. tostring(screen_height) .. ".jpg"),
       path_join(ASSETS_DIR, "wallpaper-" .. tostring(screen_width) .. "x" .. tostring(screen_height) .. ".png"),
+      path_join(ASSETS_DIR, "wallpaper-480x360.jpg"),
       path_join(ASSETS_DIR, "wallpaper-480x360.png"),
+      path_join(ASSETS_DIR, "wallpaper-480x270.jpg"),
+      path_join(ASSETS_DIR, "wallpaper-480x270.png"),
+      path_join(ASSETS_DIR, "wallpaper-640x360.jpg"),
+      path_join(ASSETS_DIR, "wallpaper-640x360.png"),
+      path_join(ASSETS_DIR, "wallpaper-800x360.jpg"),
+      path_join(ASSETS_DIR, "wallpaper-800x360.png"),
+      path_join(ASSETS_DIR, "wallpaper.jpg"),
       path_join(ASSETS_DIR, "wallpaper.png"),
+      "/dock/wallpaper.jpg",
       "/dock/wallpaper.png",
     }
   end
@@ -2190,26 +2389,36 @@ local function render_wallpaper(gpu)
         if state.wallpaper and state.wallpaper.free then
           pcall(state.wallpaper.free)
         end
+        state.wallpaper = nil
+        state.wallpaper_key = nil
         local buffer, buffer_err = read_binary_into_gpu_buffer(gpu, path)
         if not buffer then
           state.wallpaper_error = tostring(buffer_err)
-          return nil
+        else
+          local ok, image = pcall(function()
+            return gpu.decodeImage(buffer.ref())
+          end)
+          pcall(buffer.free)
+          if ok and image then
+            local image_width = image.getWidth and image.getWidth() or 0
+            local image_height = image.getHeight and image.getHeight() or 0
+            if image_width <= state.external.pixel_width and image_height <= state.external.pixel_height then
+              state.wallpaper = image
+              state.wallpaper_key = key
+              state.wallpaper_error = nil
+              return image
+            end
+            if image.free then
+              pcall(image.free)
+            end
+            state.wallpaper_error = "wallpaper larger than screen"
+          else
+            state.wallpaper_error = tostring(image)
+          end
         end
-        local ok, image = pcall(function()
-          return gpu.decodeImage(buffer.ref())
-        end)
-        pcall(buffer.free)
-        if ok and image then
-          state.wallpaper = image
-          state.wallpaper_key = key
-          state.wallpaper_error = nil
-          return image
-        end
-        state.wallpaper_error = tostring(image)
-        return nil
       end
     end
-    state.wallpaper_error = "missing /dock/assets/wallpaper*.png"
+    state.wallpaper_error = state.wallpaper_error or "missing /dock/assets/wallpaper*.jpg"
     return nil
   end
 
@@ -2231,6 +2440,65 @@ local function render_wallpaper(gpu)
   if gpu.fill then
     gpu.fill(rgb_value(10, 15, 18))
     return
+  end
+end
+
+local function load_icon_image(gpu, path)
+  if not gpu.decodeImage or not gpu.drawImage or not path or not fs.exists(path) or fs.isDir(path) then
+    return nil
+  end
+  local key = path .. ":" .. tostring(fs.getSize(path) or 0)
+  local cached = state.icon_cache[path]
+  if cached and cached.key == key and cached.image then
+    return cached.image
+  end
+  if cached and cached.image and cached.image.free then
+    pcall(cached.image.free)
+  end
+  local buffer = read_binary_into_gpu_buffer(gpu, path)
+  if not buffer then
+    state.icon_cache[path] = nil
+    return nil
+  end
+  local ok, image = pcall(function()
+    return gpu.decodeImage(buffer.ref())
+  end)
+  pcall(buffer.free)
+  if not ok or not image then
+    state.icon_cache[path] = nil
+    return nil
+  end
+  state.icon_cache[path] = { key = key, image = image }
+  return image
+end
+
+local function render_image_op(gpu, op, pixel_left, pixel_top)
+  if op.background then
+    tom_fill_rect(
+      gpu,
+      pixel_left,
+      pixel_top,
+      op.width * state.external.cell_width,
+      op.height * state.external.cell_height,
+      op.background
+    )
+  end
+  local image = load_icon_image(gpu, op.path)
+  if image then
+    local image_width = image.getWidth and image.getWidth() or 0
+    local image_height = image.getHeight and image.getHeight() or 0
+    local box_width = op.width * state.external.cell_width
+    local box_height = op.height * state.external.cell_height
+    if image_width <= box_width and image_height <= box_height then
+      local image_left = pixel_left + math.floor((box_width - image_width) / 2)
+      local image_top = pixel_top + math.floor((box_height - image_height) / 2)
+      if pcall(gpu.drawImage, image_left, image_top, image.ref()) then
+        return
+      end
+    end
+  end
+  if op.fallback and op.fallback ~= "" then
+    tom_draw_text(gpu, pixel_left, pixel_top, op.fallback, op.foreground or colors.white, op.background)
   end
 end
 
@@ -2270,6 +2538,8 @@ local function render_tom_gpu()
       elseif op.kind == "text" then
         local background = op.background
         tom_draw_text(gpu, pixel_left, pixel_top, op.text, op.foreground, background)
+      elseif op.kind == "image" then
+        render_image_op(gpu, op, pixel_left, pixel_top)
       end
       end
     end
@@ -2404,6 +2674,19 @@ local function handle_action(action, payload, mouse_left, mouse_top)
   elseif action == "system_open" then
     state.system_menu_open = false
     open_app(payload)
+  elseif action == "app_search_prompt" then
+    state.system_menu_open = false
+    open_app("launcher")
+    prompt_text("Search apps", state.app_search_query or "", function(value)
+      state.app_search_query = tostring(value or "")
+    end)
+  elseif action == "app_search_clear" then
+    state.app_search_query = ""
+  elseif action == "store_search_prompt" then
+    prompt_text("Search Store", state.store_search_query or "", function(value)
+      state.store_search_query = tostring(value or "")
+      state.store_scroll = 0
+    end)
   elseif action == "system_about" then
     state.system_menu_open = false
     set_modal("About DockOS", {
@@ -2492,13 +2775,21 @@ local function handle_action(action, payload, mouse_left, mouse_top)
   elseif action == "doc_select" then
     state.docs_selected = payload
     state.docs_preview = read_file(payload) or ""
+    state.docs_scroll = 0
+    state.docs_menu_open = false
+  elseif action == "doc_menu_toggle" then
+    state.docs_menu_open = not state.docs_menu_open
   elseif action == "doc_new" then
+    state.docs_menu_open = false
     new_document()
   elseif action == "doc_edit" then
+    state.docs_menu_open = false
     edit_document()
   elseif action == "doc_print" then
+    state.docs_menu_open = false
     print_document()
   elseif action == "doc_delete" and state.docs_selected then
+    state.docs_menu_open = false
     fs.delete(state.docs_selected)
     state.docs_selected = nil
     state.docs_preview = ""
@@ -2518,6 +2809,8 @@ local function handle_action(action, payload, mouse_left, mouse_top)
     speaker_test()
   elseif action == "settings_printer" then
     printer_test()
+  elseif action == "settings_tab" then
+    state.settings_tab = payload or "general"
   elseif action == "theme_set" then
     apply_theme(payload)
     local ok, err = save_config()
@@ -2629,8 +2922,11 @@ local function run_loop()
     elseif event == "mouse_drag" and state.dragging_window then
       local window_state = state.windows[state.dragging_window.id]
       if window_state then
-        window_state.left = math.max(1, state.dragging_window.start_left + second - state.dragging_window.mouse_left)
-        window_state.top = math.max(2, state.dragging_window.start_top + third - state.dragging_window.mouse_top)
+        local screen_width, screen_height = screen_size()
+        local max_left = math.max(1, screen_width - window_state.width + 1)
+        local max_top = math.max(1, screen_height - window_state.height - 2)
+        window_state.left = math.max(1, math.min(max_left, state.dragging_window.start_left + second - state.dragging_window.mouse_left))
+        window_state.top = math.max(1, math.min(max_top, state.dragging_window.start_top + third - state.dragging_window.mouse_top))
       end
     elseif event == "mouse_up" then
       local hitbox = hit_at(second, third)
@@ -2647,6 +2943,10 @@ local function run_loop()
       local active_window = state.windows[state.active_window]
       if active_window and active_window.app == "finder" then
         state.file_scroll = math.max(0, state.file_scroll + first)
+      elseif active_window and active_window.app == "docs" then
+        state.docs_scroll = math.max(0, state.docs_scroll + first)
+      elseif active_window and active_window.app == "store" then
+        state.store_scroll = math.max(0, state.store_scroll + first)
       end
     elseif event == "timer" and first == state.peripheral_scan_timer then
       scan_external_peripherals()

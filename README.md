@@ -33,16 +33,19 @@ Recommended screen size for the current UI is at least a `3x5` Tom bitmap monito
 - Windows-style desktop shell with a full-width bottom taskbar.
 - External-display first: no UI is drawn on the PC terminal.
 - Start menu opens from the taskbar and includes Apps, Files, Store, Terminal, Settings, About, reboot, and shutdown.
-- Search box on the taskbar opens the app launcher.
-- Real PNG wallpaper loading through Tom GPU `decodeImage`/`drawImage`.
-- Default DockOS Blue wallpaper assets are installed into `/dock/assets`.
+- Search box on the taskbar opens app search.
+- Real JPEG/PNG wallpaper loading through Tom GPU `decodeImage`/`drawImage`.
+- Default Pexels mountain wallpaper assets are installed into `/dock/assets`.
+- App icons are generated from Google Material Icons.
 - Release boot splash.
 - High-resolution Tom GPU renderer with square opaque surfaces and strict Z-order.
 - Square app windows with colored title bars, close, fullscreen, focus, and drag.
 - Pinned taskbar apps plus open-app indicators.
 - Files app with create folder/file, rename, delete, preview, and open.
-- Settings app for themes, peripherals, speaker, printer, reboot, and power.
-- Store includes built-in Documents, Paint, and Luma install.
+- Store has search, popular square app cards, and compact app rows.
+- Docs uses a white page workspace, orange File menu, wrapping preview, print, and edit.
+- Paint uses a wide white canvas with a compact toolbar.
+- Settings uses vertical tabs for General, Theme, Devices, Privacy & Security, and Power.
 
 ## Apps
 
@@ -87,7 +90,7 @@ shutdown
 ## Wallpaper Assets
 
 DockOS loads real image files from `/dock/assets`, not a Lua-drawn fake wallpaper.
-Best match for a `3x5` Tom bitmap monitor is usually `wallpaper-480x360.png`.
+Best match for a `3x5` Tom bitmap monitor is usually `wallpaper-480x360.jpg`.
 Use a direct raw image URL, not a normal web page URL.
 
 Prepare assets on your computer:
@@ -99,7 +102,7 @@ python3 tools/prepare-wallpaper.py /path/to/photo.jpg --out assets
 Then push the generated files or install a raw image directly in Minecraft:
 
 ```lua
-dock wallpaper https://example.com/wallpaper-480x360.png
+dock wallpaper https://example.com/wallpaper-480x360.jpg
 ```
 
 `dock doctor` keeps output on the computer terminal and prints attached peripherals,

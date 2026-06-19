@@ -11,10 +11,26 @@ local FILES = {
 }
 
 local OPTIONAL_ASSETS = {
-  { source = "wallpaper-480x360.png", target = "/dock/assets/wallpaper-480x360.png", binary = true },
-  { source = "wallpaper-320x216.png", target = "/dock/assets/wallpaper-320x216.png", binary = true },
-  { source = "wallpaper-800x480.png", target = "/dock/assets/wallpaper-800x480.png", binary = true },
-  { source = "wallpaper.png", target = "/dock/assets/wallpaper.png", binary = true },
+  { source = "wallpaper-320x216.jpg", target = "/dock/assets/wallpaper-320x216.jpg", binary = true },
+  { source = "wallpaper-480x270.jpg", target = "/dock/assets/wallpaper-480x270.jpg", binary = true },
+  { source = "wallpaper-480x360.jpg", target = "/dock/assets/wallpaper-480x360.jpg", binary = true },
+  { source = "wallpaper-640x360.jpg", target = "/dock/assets/wallpaper-640x360.jpg", binary = true },
+  { source = "wallpaper-800x360.jpg", target = "/dock/assets/wallpaper-800x360.jpg", binary = true },
+  { source = "wallpaper-800x480.jpg", target = "/dock/assets/wallpaper-800x480.jpg", binary = true },
+  { source = "wallpaper-960x540.jpg", target = "/dock/assets/wallpaper-960x540.jpg", binary = true },
+  { source = "wallpaper.jpg", target = "/dock/assets/wallpaper.jpg", binary = true },
+  { source = "icons/apps.png", target = "/dock/assets/icons/apps.png", binary = true },
+  { source = "icons/computer.png", target = "/dock/assets/icons/computer.png", binary = true },
+  { source = "icons/docs.png", target = "/dock/assets/icons/docs.png", binary = true },
+  { source = "icons/folder.png", target = "/dock/assets/icons/folder.png", binary = true },
+  { source = "icons/info.png", target = "/dock/assets/icons/info.png", binary = true },
+  { source = "icons/luma.png", target = "/dock/assets/icons/luma.png", binary = true },
+  { source = "icons/paint.png", target = "/dock/assets/icons/paint.png", binary = true },
+  { source = "icons/search.png", target = "/dock/assets/icons/search.png", binary = true },
+  { source = "icons/settings.png", target = "/dock/assets/icons/settings.png", binary = true },
+  { source = "icons/start.png", target = "/dock/assets/icons/start.png", binary = true },
+  { source = "icons/store.png", target = "/dock/assets/icons/store.png", binary = true },
+  { source = "icons/terminal.png", target = "/dock/assets/icons/terminal.png", binary = true },
 }
 
 local START_MARK = "-- DockOS startup hook: begin"
@@ -86,11 +102,11 @@ local function join_url(base_url, path)
   return tostring(base_url):gsub("/+$", "") .. "/" .. tostring(path):gsub("^/+", "")
 end
 
-local function download(url, binary)
+local function download_text(url)
   if not http then
     return nil, "HTTP API is disabled"
   end
-  local handle, err = http.get(url, { ["Accept"] = "*/*" }, binary)
+  local handle, err = http.get(url, { ["Accept"] = "*/*" })
   if not handle then
     return nil, err or "request failed"
   end
@@ -104,6 +120,56 @@ local function download(url, binary)
     return nil, "HTTP " .. tostring(code)
   end
   return body or ""
+end
+
+local function write_chunk(handle, chunk)
+  if chunk == nil then
+    return true
+  end
+  if type(chunk) == "number" then
+    handle.write(string.char(chunk))
+  elseif type(chunk) == "table" then
+    for _, byte in ipairs(chunk) do
+      handle.write(string.char(byte))
+    end
+  else
+    handle.write(chunk)
+  end
+  return true
+end
+
+local function download_file(url, target, binary)
+  if not http then
+    return nil, "HTTP API is disabled"
+  end
+  local input, err = http.get(url, { ["Accept"] = "*/*" }, binary)
+  if not input then
+    return nil, err or "request failed"
+  end
+  local code = 200
+  if input.getResponseCode then
+    code = input.getResponseCode()
+  end
+  if code < 200 or code >= 300 then
+    input.close()
+    return nil, "HTTP " .. tostring(code)
+  end
+  ensure_parent(target)
+  local output = fs.open(target, binary and "wb" or "w") or fs.open(target, "w")
+  if not output then
+    input.close()
+    return nil, "cannot open " .. target
+  end
+  while true do
+    local chunk = input.read(8192)
+    if chunk == nil then
+      break
+    end
+    write_chunk(output, chunk)
+  end
+  output.close()
+  input.close()
+  return true
 end
 
 local function temp_path(target)
@@ -146,15 +212,19 @@ local function install_files(source_url, asset_url)
 
   for index, file in ipairs(FILES) do
     print("DockOS [" .. tostring(index) .. "/" .. tostring(#FILES) .. "] " .. file.source)
-    local body, err = download(join_url(source_url, file.source), file.binary)
-    if not body then
-      fs.delete(TEMP_DIR)
-      return nil, err
+    local ok, err
+    if file.binary then
+      ok, err = download_file(join_url(source_url, file.source), temp_path(file.target), true)
+    else
+      local body
+      body, err = download_text(join_url(source_url, file.source))
+      if body then
+        ok, err = write_file(temp_path(file.target), body, false)
+      end
     end
-    local ok, write_err = write_file(temp_path(file.target), body, file.binary)
     if not ok then
       fs.delete(TEMP_DIR)
-      return nil, write_err
+      return nil, err
     end
   end
 
@@ -168,13 +238,8 @@ local function install_files(source_url, asset_url)
 
   for _, file in ipairs(OPTIONAL_ASSETS) do
     print("DockOS asset " .. file.source)
-    local body = download(join_url(asset_url, file.source), file.binary)
-    if body then
-      local ok, write_err = write_file(temp_path(file.target), body, file.binary)
-      if not ok then
-        fs.delete(TEMP_DIR)
-        return nil, write_err
-      end
+    local ok = download_file(join_url(asset_url, file.source), temp_path(file.target), file.binary)
+    if ok then
       if fs.exists(file.target) then
         fs.delete(file.target)
       end
