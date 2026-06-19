@@ -2,13 +2,11 @@
 
 Standalone OS shell for CC:Tweaked Advanced Computers.
 
-Current release: **DockOS Ridge 1.2.8**.
+Current release: **DockOS Kyrenia 1.2.9**.
 
-DockOS release names follow a simple landscape line: short, serious names tied
-to the default visual identity. Example future names: Ridge, Summit, Harbor,
-Aurora, Atlas.
+DockOS release names follow Cyprus locations. Kyrenia is the first named visual release.
 
-DockOS currently targets a `3x6` Tom bitmap-monitor wall (`480x432`) as the primary desktop size.
+DockOS currently targets a `3x6` Tom bitmap-monitor wall (`384x192`) as the primary desktop size.
 DockOS renders on an external Tom's Peripherals GPU/Bitmap Monitor setup.
 The computer's own terminal is intentionally kept blank while the OS is running.
 
@@ -50,21 +48,24 @@ Supported Tom bitmap monitor walls: `2x3`, `2x4`, `3x6`, `4x8`; `1x2` has a comp
 - Sharp square app icons in the left dock and bottom shelf, tuned for `3x6`.
 - Pinned left-dock apps plus open-app indicators.
 - Files app with create folder/file, rename, delete, preview, and open.
-- Store has search, popular square app cards, and compact app rows.
+- Store has search, popular square app cards, compact app rows, and built-in apps.
 - Docs uses a white page workspace, orange File menu, wrapping preview, print, and edit.
 - Paint uses a wide white canvas with a compact toolbar.
-- Settings uses vertical tabs for General, Theme, Time, Devices, Privacy & Security, and Power.
+- Settings uses vertical tabs for General, Theme, Time, Devices, Privacy, and Power.
+- Luma has inline search, pinned Luma Web Creator, and a simple page editor.
+- App Studio has a code panel, live preview, component buttons, and example projects.
 
 ## Apps
 
 - **Files** - desktop file manager.
 - **Launchpad** - app launcher.
-- **Store** - install/open apps.
+- **Store** - open built-in apps.
 - **Documents** - write documents and print with a connected printer.
 - **Paint** - simple pixel paint app.
 - **Blend** - blocky 3D modeling and render preview app.
 - **Settings** - themes, display rescan, speakers, printers, DirectGPU.
-- **Luma** - browser shell, installable from Store.
+- **Luma** - browser with inline search and Web Creator.
+- **App Studio** - build DockOS app prototypes with code and preview.
 - **Terminal** - DockOS shell with file/app/power commands.
 
 ## Commands
@@ -73,7 +74,8 @@ Supported Tom bitmap monitor walls: `2x3`, `2x4`, `3x6`, `4x8`; `1x2` has a comp
 dock
 dock files
 dock store
-dock store install luma
+dock luma
+dock studio
 dock apps
 dock doctor
 dock doctor 3d
@@ -99,7 +101,7 @@ shutdown
 ## Wallpaper Assets
 
 DockOS loads real image files from `/dock/assets`, not a Lua-drawn fake wallpaper.
-Built-in wallpaper assets include exact sizes for `2x3`, `2x4`, `3x6`, and `4x8` Tom bitmap monitor walls, the observed `382x192` Tom GPU base size, plus a compact `1x2` fallback.
+Built-in wallpaper assets include exact sizes for `2x3`, `2x4`, `3x6` (`384x192`), and `4x8` Tom bitmap monitor walls, plus legacy `382x192` and compact `1x2` fallbacks.
 The installer downloads only the best matching wallpaper for the detected GPU size to avoid CC disk space errors.
 Use a direct raw image URL, not a normal web page URL.
 

@@ -7,7 +7,7 @@ try:
 except ImportError as exc:
     raise SystemExit("Pillow is required: python3 -m pip install Pillow") from exc
 
-SIZES = [(160, 144), (320, 216), (320, 288), (382, 192), (480, 432), (640, 576)]
+SIZES = [(160, 144), (320, 216), (320, 288), (382, 192), (384, 192), (480, 432), (640, 576)]
 
 
 def cover_resize(image: Image.Image, size: tuple[int, int]) -> Image.Image:

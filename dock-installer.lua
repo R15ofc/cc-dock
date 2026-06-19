@@ -14,6 +14,7 @@ local WALLPAPER_ASSETS = {
   { source = "wallpaper-160x144.png", target = "/dock/assets/wallpaper-160x144.png", width = 160, height = 144, binary = true },
   { source = "wallpaper-320x216.png", target = "/dock/assets/wallpaper-320x216.png", width = 320, height = 216, binary = true },
   { source = "wallpaper-382x192.png", target = "/dock/assets/wallpaper-382x192.png", width = 382, height = 192, binary = true },
+  { source = "wallpaper-384x192.png", target = "/dock/assets/wallpaper-384x192.png", width = 384, height = 192, binary = true },
   { source = "wallpaper-320x288.png", target = "/dock/assets/wallpaper-320x288.png", width = 320, height = 288, binary = true },
   { source = "wallpaper-480x432.png", target = "/dock/assets/wallpaper-480x432.png", width = 480, height = 432, binary = true },
   { source = "wallpaper-640x576.png", target = "/dock/assets/wallpaper-640x576.png", width = 640, height = 576, binary = true },
@@ -34,6 +35,7 @@ local OPTIONAL_ASSETS = {
   { source = "icons/paint_tile.png", target = "/dock/assets/icons/paint_tile.png", binary = true },
   { source = "icons/settings_tile.png", target = "/dock/assets/icons/settings_tile.png", binary = true },
   { source = "icons/luma_tile.png", target = "/dock/assets/icons/luma_tile.png", binary = true },
+  { source = "icons/studio_tile.png", target = "/dock/assets/icons/studio_tile.png", binary = true },
   { source = "icons/terminal_tile.png", target = "/dock/assets/icons/terminal_tile.png", binary = true },
   { source = "icons/info_tile.png", target = "/dock/assets/icons/info_tile.png", binary = true },
   { source = "icons/search_tile.png", target = "/dock/assets/icons/search_tile.png", binary = true },
@@ -43,12 +45,14 @@ local LEGACY_ASSETS = {
   "/dock/assets/wallpaper-320x216.png",
   "/dock/assets/wallpaper-320x288.png",
   "/dock/assets/wallpaper-382x192.png",
+  "/dock/assets/wallpaper-384x192.png",
   "/dock/assets/wallpaper-480x432.png",
   "/dock/assets/wallpaper-640x576.png",
   "/dock/assets/wallpaper-160x144.jpg",
   "/dock/assets/wallpaper-320x216.jpg",
   "/dock/assets/wallpaper-320x288.jpg",
   "/dock/assets/wallpaper-382x192.jpg",
+  "/dock/assets/wallpaper-384x192.jpg",
   "/dock/assets/wallpaper-480x432.jpg",
   "/dock/assets/wallpaper-640x576.jpg",
   "/dock/assets/wallpaper-480x270.jpg",
@@ -279,7 +283,7 @@ local function select_wallpaper_asset()
       return file, width, height
     end
   end
-  local selected = WALLPAPER_ASSETS[3]
+  local selected = WALLPAPER_ASSETS[1]
   for _, file in ipairs(WALLPAPER_ASSETS) do
     if file.width <= width and file.height <= height and file.width * file.height > selected.width * selected.height then
       selected = file

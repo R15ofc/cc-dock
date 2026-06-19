@@ -1,8 +1,6 @@
-local VERSION = "1.2.8"
-local RELEASE_NAME = "Ridge"
+local VERSION = "1.2.9"
+local RELEASE_NAME = "Kyrenia"
 local DISPLAY_VERSION = "DockOS " .. RELEASE_NAME .. " " .. VERSION
-local LUMA_INSTALLER_URL = "https://raw.githubusercontent.com/R15ofc/cc-luma/main/luma-installer.lua"
-local LUMA_SOURCE_URL = "https://raw.githubusercontent.com/R15ofc/cc-luma/main/cc"
 local DOCS_DIR = "/dock/documents"
 local PAINT_DIR = "/dock/paintings"
 local ASSETS_DIR = "/dock/assets"
@@ -22,13 +20,13 @@ local DEFAULT_EXTERNAL_HEIGHT = 30
 local CELL_WIDTH = 6
 local CELL_HEIGHT = 9
 local PERIPHERAL_SCAN_SECONDS = 1
-local TARGET_3X6_WIDTH = 480
-local TARGET_3X6_HEIGHT = 432
-local DOCK_LEFT_PIXELS = 42
-local DOCK_BOTTOM_PIXELS = 46
-local DOCK_BUTTON_PIXELS = 32
+local TARGET_3X6_WIDTH = 384
+local TARGET_3X6_HEIGHT = 192
+local DOCK_LEFT_PIXELS = 32
+local DOCK_BOTTOM_PIXELS = 34
+local DOCK_BUTTON_PIXELS = 24
 local DOCK_ICON_PIXELS = 24
-local DOCK_GAP_PIXELS = 8
+local DOCK_GAP_PIXELS = 6
 
 local THEME = {
   desktop = colors.black,
@@ -192,26 +190,21 @@ local APPS = {
   settings = { id = "settings", name = "Settings", icon = "SG", icon_asset = "settings_tile", color = colors.orange },
   blend = { id = "blend", name = "Blend", icon = "3D", icon_asset = "blend_tile", color = colors.orange },
   luma = { id = "luma", name = "Luma", icon = "LM", icon_asset = "luma_tile", color = colors.purple },
+  studio = { id = "studio", name = "App Studio", icon = "AS", icon_asset = "studio_tile", color = colors.lightBlue },
   terminal = { id = "terminal", name = "Terminal", icon = ">_", icon_asset = "terminal_tile", color = colors.green },
 }
 
-local PINNED = { "launcher", "finder", "store", "docs", "paint", "blend", "settings", "terminal" }
+local PINNED = { "launcher", "finder", "store", "luma", "docs", "paint", "blend", "settings", "terminal" }
 
 local STORE_APPS = {
   { id = "docs", name = "Docs", trust = "built-in", popular = true, description = "Write documents and print them." },
   { id = "paint", name = "Paint", trust = "built-in", popular = true, description = "Draw images on a wide canvas." },
   { id = "blend", name = "Blend", trust = "built-in", popular = true, description = "Model blocky 3D scenes and preview renders." },
+  { id = "studio", name = "App Studio", trust = "built-in", popular = true, description = "Build apps with code, components, and live preview." },
   { id = "finder", name = "Files", trust = "built-in", description = "Browse, create, rename, and delete files." },
   { id = "terminal", name = "Terminal", trust = "built-in", description = "Run DockOS shell commands." },
   { id = "settings", name = "Settings", trust = "built-in", description = "Themes, display, speakers, printer, security." },
-  {
-    id = "luma",
-    name = "Luma Browser",
-    trust = "verified",
-    description = "Browser for Luma pages and internet gateway.",
-    installer = LUMA_INSTALLER_URL,
-    source = LUMA_SOURCE_URL,
-  },
+  { id = "luma", name = "Luma Browser", trust = "built-in", popular = true, description = "Browse Luma pages and create web sites." },
 }
 
 local state = {
@@ -241,6 +234,23 @@ local state = {
   app_search_query = "",
   store_search_query = "",
   store_scroll = 0,
+  focused_field = nil,
+  luma_page = "home",
+  luma_query = "",
+  luma_creator_title = "Luma Web Creator",
+  luma_creator_body = "Click here and write your page text.",
+  luma_creator_elements = {
+    { kind = "heading", text = "Luma Web Creator" },
+    { kind = "text", text = "Create a small site directly inside Luma." },
+  },
+  studio_code = "app.title='Demo App'; shape(4,3,18,5); text(6,5,'Hello DockOS')",
+  studio_message = "Preview ready",
+  studio_examples_open = false,
+  studio_preview = "blank",
+  studio_elements = {
+    { kind = "shape", label = "Panel" },
+    { kind = "text", label = "Hello DockOS" },
+  },
   toast = "",
   modal = nil,
   input = nil,
@@ -897,6 +907,129 @@ local function handle_input_event(event, first)
   return false
 end
 
+function inline_field_value(field)
+  if field == "luma_query" then
+    return state.luma_query or ""
+  elseif field == "luma_creator_title" then
+    return state.luma_creator_title or ""
+  elseif field == "luma_creator_body" then
+    return state.luma_creator_body or ""
+  elseif field == "studio_code" then
+    return state.studio_code or ""
+  end
+  return ""
+end
+
+function set_inline_field_value(field, value)
+  value = tostring(value or "")
+  if field == "luma_query" then
+    state.luma_query = value
+  elseif field == "luma_creator_title" then
+    state.luma_creator_title = value
+  elseif field == "luma_creator_body" then
+    state.luma_creator_body = value
+  elseif field == "studio_code" then
+    state.studio_code = value
+  end
+end
+
+function submit_luma_query()
+  local query = tostring(state.luma_query or "")
+  local lowered = string.lower(query)
+  if query == "" then
+    state.luma_page = "home"
+  elseif lowered:find("creator", 1, true) or lowered:find("luma://create", 1, true) then
+    state.luma_page = "creator"
+  else
+    state.luma_page = "search"
+  end
+end
+
+function apply_studio_example(example_id)
+  state.studio_examples_open = false
+  if example_id == "pong" then
+    state.studio_preview = "pong"
+    state.studio_code = "example('ping-pong'); paddle('left'); paddle('right'); ball(18,7)"
+    state.studio_elements = {
+      { kind = "shape", label = "Left paddle" },
+      { kind = "shape", label = "Right paddle" },
+      { kind = "shape", label = "Ball" },
+    }
+    state.studio_message = "Example loaded: Ping Pong"
+  elseif example_id == "music" then
+    state.studio_preview = "music"
+    state.studio_code = "example('music-player'); text('Dock Beats'); image('cover'); button('Play')"
+    state.studio_elements = {
+      { kind = "image", label = "Album art" },
+      { kind = "text", label = "Track title" },
+      { kind = "shape", label = "Play button" },
+    }
+    state.studio_message = "Example loaded: Music Player"
+  else
+    state.studio_preview = "blank"
+    state.studio_code = "app.title='Demo App'; shape(4,3,18,5); text(6,5,'Hello DockOS')"
+    state.studio_elements = {
+      { kind = "shape", label = "Panel" },
+      { kind = "text", label = "Hello DockOS" },
+    }
+    state.studio_message = "Example loaded: Blank"
+  end
+end
+
+function studio_add_component(kind)
+  kind = tostring(kind or "shape")
+  if kind == "textinput" then
+    state.studio_code = tostring(state.studio_code or "") .. "; input('Name')"
+    table.insert(state.studio_elements, { kind = "textinput", label = "Text input" })
+  elseif kind == "image" then
+    state.studio_code = tostring(state.studio_code or "") .. "; image('asset')"
+    table.insert(state.studio_elements, { kind = "image", label = "Image" })
+  elseif kind == "text" then
+    state.studio_code = tostring(state.studio_code or "") .. "; text('Label')"
+    table.insert(state.studio_elements, { kind = "text", label = "Text" })
+  else
+    state.studio_code = tostring(state.studio_code or "") .. "; shape(2,2,12,4)"
+    table.insert(state.studio_elements, { kind = "shape", label = "Shape" })
+  end
+  state.studio_preview = "custom"
+  state.studio_message = "Component added: " .. kind
+end
+
+function submit_inline_field(field)
+  if field == "luma_query" then
+    submit_luma_query()
+  elseif field == "studio_code" then
+    state.studio_preview = "custom"
+    state.studio_message = "Preview updated"
+  elseif field == "luma_creator_title" or field == "luma_creator_body" then
+    state.toast = "Luma page updated"
+  end
+end
+
+function handle_inline_field_event(event, first)
+  if not state.focused_field or state.input or state.modal then
+    return false
+  end
+  if event == "char" or event == "paste" then
+    local value = inline_field_value(state.focused_field)
+    set_inline_field_value(state.focused_field, value .. tostring(first or ""))
+    return true
+  elseif event == "key" then
+    if first == keys.enter then
+      submit_inline_field(state.focused_field)
+      return true
+    elseif first == keys.backspace then
+      local value = inline_field_value(state.focused_field)
+      set_inline_field_value(state.focused_field, value:sub(1, math.max(0, #value - 1)))
+      return true
+    elseif keys.escape and first == keys.escape then
+      state.focused_field = nil
+      return true
+    end
+  end
+  return false
+end
+
 local function add_open_app(app_id)
   for _, existing_app_id in ipairs(state.open_dock_order) do
     if existing_app_id == app_id then
@@ -1079,10 +1212,6 @@ local function toggle_fullscreen(window_state)
   end
 end
 
-local function luma_installed()
-  return fs.exists("/luma/luma.lua")
-end
-
 local open_app
 
 local function install_wallpaper_url(url)
@@ -1258,48 +1387,13 @@ local function terminal_execute(command_line)
   end
 end
 
-local function install_luma()
-  state.toast = "Downloading Luma"
-  draw()
-  local body, err = download(LUMA_INSTALLER_URL)
-  if not body then
-    show_error("Download failed: " .. tostring(err))
-    return
-  end
-  local installer_path = "/tmp/luma-installer.lua"
-  local ok, write_err = write_file(installer_path, body)
-  if not ok then
-    show_error(write_err)
-    return
-  end
-  state.toast = "Installing Luma"
-  draw()
-  local run_ok, run_err = run_hidden(function()
-    if shell then
-      return shell.run(installer_path, "--source", LUMA_SOURCE_URL)
-    end
-    return dofile(installer_path)
-  end)
-  if not run_ok then
-    show_error("Install failed: " .. tostring(run_err))
-    return
-  end
-  state.toast = "Luma installed"
-end
-
 local function open_luma()
-  if not luma_installed() then
-    state.toast = "Install Luma in Store"
-    local store_window = find_window_by_app("store") or create_window("store", "Store", 68, 34)
-    bring_to_front(store_window.id)
-    return
-  end
   local existing_window = find_window_by_app("luma")
   if existing_window then
     bring_to_front(existing_window.id)
     return
   end
-  create_window("luma", "Luma Browser", 70, 34)
+  create_window("luma", "Luma Browser", 64, 21)
 end
 
 local function open_terminal()
@@ -1332,6 +1426,7 @@ function open_app(app_id)
   local preferred_width = app_id == "finder" and 70
     or app_id == "paint" and 70
     or app_id == "blend" and 72
+    or app_id == "studio" and 72
     or app_id == "launcher" and 66
     or app_id == "docs" and 70
     or app_id == "settings" and 70
@@ -1340,6 +1435,7 @@ function open_app(app_id)
   local preferred_height = app_id == "finder" and 34
     or app_id == "paint" and 35
     or app_id == "blend" and 36
+    or app_id == "studio" and 34
     or app_id == "launcher" and 32
     or app_id == "docs" and 36
     or app_id == "settings" and 34
@@ -1355,6 +1451,26 @@ local function draw_button(action, left, top, label, payload, background)
   write_at(left + 1, top, label, foreground_for_background(button_background), button_background)
   add_hit(action, left, top, width, 1, payload)
   return width
+end
+
+function draw_inline_field(left, top, width, field, placeholder, background)
+  if width < 3 then
+    return
+  end
+  local field_background = background or THEME.field
+  local active = state.focused_field == field
+  local value = inline_field_value(field)
+  local text = value ~= "" and value or tostring(placeholder or "")
+  local text_color = value ~= "" and colors.white or colors.lightGray
+  fill(left, top, width, 1, field_background)
+  if active then
+    fill(left, top, 1, 1, THEME.accent)
+    text = trim(text .. "_", width - 3)
+    write_at(left + 2, top, text, text_color, field_background)
+  else
+    write_at(left + 1, top, trim(text, width - 2), text_color, field_background)
+  end
+  add_hit("inline_focus", left, top, width, 1, field)
 end
 
 local function icon_asset_path(icon_id)
@@ -1463,7 +1579,7 @@ local function draw_system_menu()
   end)
 
   local card_width = 12
-  local card_height = 5
+  local card_height = 4
   local grid_left = left + 2
   local grid_top = top + 5
   local columns = math.max(1, math.floor((width - 4) / (card_width + 1)))
@@ -1548,7 +1664,7 @@ local function draw_dock()
       local hit_left = math.max(1, math.floor((icon_left - 1) / state.external.cell_width) + 1)
       local hit_top = math.max(1, math.floor((icon_top - 1) / state.external.cell_height) + 1)
       add_hit("dock_pinned", hit_left, hit_top, ceil_div(DOCK_BUTTON_PIXELS, state.external.cell_width), ceil_div(DOCK_BUTTON_PIXELS, state.external.cell_height), app_id)
-      icon_left = icon_left + DOCK_BUTTON_PIXELS + 8
+      icon_left = icon_left + DOCK_BUTTON_PIXELS + DOCK_GAP_PIXELS
     end
     local open_left = icon_left + 4
     for _, app_id in ipairs(state.open_dock_order) do
@@ -1561,7 +1677,7 @@ local function draw_dock()
         local hit_left = math.max(1, math.floor((open_left - 1) / state.external.cell_width) + 1)
         local hit_top = math.max(1, math.floor((icon_top - 1) / state.external.cell_height) + 1)
         add_hit("dock_open", hit_left, hit_top, ceil_div(DOCK_BUTTON_PIXELS, state.external.cell_width), ceil_div(DOCK_BUTTON_PIXELS, state.external.cell_height), app_id)
-        open_left = open_left + DOCK_BUTTON_PIXELS + 8
+        open_left = open_left + DOCK_BUTTON_PIXELS + DOCK_GAP_PIXELS
       end
     end
     add_hit("dock_drop_end", math.max(1, math.floor((open_left - 1) / state.external.cell_width) + 1), screen_height - 1, 3, 2, nil)
@@ -1604,21 +1720,21 @@ local function draw_window_frame(window_state)
   if app then
     draw_icon_asset(window_state.left + 1, window_state.top, 3, 1, app.icon_asset, app.icon, title_foreground, title_color)
   end
-  local controls_left = math.max(window_state.left + 1, window_state.left + window_state.width - 8)
+  local controls_left = math.max(window_state.left + 1, window_state.left + window_state.width - 6)
   write_at(window_state.left + 5, window_state.top, trim(window_state.title, math.max(1, controls_left - window_state.left - 6)), title_foreground, title_color)
-  write_at(controls_left, window_state.top, "-", colors.lightGray, title_color)
-  write_at(controls_left + 3, window_state.top, window_state.fullscreen and "<>" or "[]", colors.lightGray, title_color)
-  write_at(controls_left + 6, window_state.top, "x", colors.white, THEME.danger)
+  fill(controls_left, window_state.top, 1, 1, colors.yellow)
+  fill(controls_left + 2, window_state.top, 1, 1, colors.lime)
+  fill(controls_left + 4, window_state.top, 1, 1, colors.red)
   add_hit("window_minimize", controls_left, window_state.top, 1, 1, window_state.id)
-  add_hit("window_fullscreen", controls_left + 3, window_state.top, 2, 1, window_state.id)
-  add_hit("window_close", controls_left + 6, window_state.top, 1, 1, window_state.id)
+  add_hit("window_fullscreen", controls_left + 2, window_state.top, 1, 1, window_state.id)
+  add_hit("window_close", controls_left + 4, window_state.top, 1, 1, window_state.id)
   add_hit("window_drag", window_state.left, window_state.top, math.max(1, controls_left - window_state.left), title_height, window_state.id)
 end
 
 local function content_rect(window_state)
   local title_height = window_title_height(window_state)
   if window_state and window_state.fullscreen then
-    return window_state.left + 1, window_state.top + title_height, window_state.width - 2, window_state.height - title_height
+    return window_state.left, window_state.top + title_height, window_state.width, window_state.height - title_height
   end
   return window_state.left + 1, window_state.top + title_height + 1, window_state.width - 2, window_state.height - title_height - 2
 end
@@ -2005,22 +2121,47 @@ local function draw_store(window_state)
     end
   end
 
-  write_at(left + 1, top + 4, "Catalog", colors.white, colors.black)
-  local row_top = top + 5
+  write_at(left + 1, top + 4, "Featured", colors.white, colors.black)
+  local popular = {}
   for _, store_app in ipairs(filtered) do
-    if row_top + 4 >= top + height then
+    if store_app.popular then
+      table.insert(popular, store_app)
+    end
+  end
+  local card_width = math.max(10, math.min(14, math.floor((width - 4) / 3)))
+  local card_height = 5
+  for index, store_app in ipairs(popular) do
+    if index > 3 then
+      break
+    end
+    local card_left = left + 1 + (index - 1) * (card_width + 1)
+    if card_left + card_width > left + width then
       break
     end
     local app = APPS[store_app.id] or APPS.store
-    local row_background = store_app.popular and THEME.surface or THEME.field
-    fill(left + 1, row_top, width - 2, 4, row_background)
-    draw_app_icon(left + 2, row_top + 1, app, 4, 3, nil, nil)
+    fill(card_left, top + 5, card_width, card_height, THEME.surface)
+    draw_app_icon(card_left + 1, top + 6, app, 4, 3, nil, nil)
+    write_at(card_left + 6, top + 6, trim(store_app.name, card_width - 7), colors.white, THEME.surface)
+    write_at(card_left + 6, top + 7, trim(store_app.trust, card_width - 7), trust_color(store_app), THEME.surface)
+    draw_button("store_open", card_left + 1, top + 8, "Open", store_app, colors.purple)
+  end
+
+  write_at(left + 1, top + 9, "Catalog", colors.white, colors.black)
+  local row_top = top + 10
+  for _, store_app in ipairs(filtered) do
+    if row_top + 2 >= top + height then
+      break
+    end
+    local app = APPS[store_app.id] or APPS.store
+    local row_background = THEME.field
+    fill(left + 1, row_top, width - 2, 3, row_background)
+    draw_app_icon(left + 2, row_top, app, 4, 3, nil, nil)
     write_at(left + 8, row_top, trim(store_app.name, width - 22), colors.white, row_background)
     write_at(left + 8, row_top + 1, trim(store_app.description, width - 22), colors.lightGray, row_background)
     write_at(left + 8, row_top + 2, string.upper(store_app.trust), trust_color(store_app), row_background)
-    local installed = store_app.trust == "built-in" or store_app.id == "luma" and luma_installed()
+    local installed = store_app.trust == "built-in"
     draw_button(installed and "store_open" or "store_install", left + width - 11, row_top + 1, installed and "Open" or "Install", store_app, installed and colors.purple or THEME.button)
-    row_top = row_top + 5
+    row_top = row_top + 4
   end
 end
 
@@ -2293,14 +2434,177 @@ local function draw_terminal(window_state)
   write_at(left + 1, top + height - 1, trim(state.terminal_cwd .. " $ " .. state.terminal_input .. "_", width - 2), colors.white, colors.black)
 end
 
-local function draw_luma(window_state)
+function draw_luma_creator(left, top, width, height)
+  fill(left, top, width, height, colors.white)
+  fill(left, top, width, 2, colors.purple)
+  write_at(left + 1, top, "Luma Web Creator", colors.white, colors.purple)
+  draw_button("luma_home", left + width - 8, top, "Home", nil, colors.gray)
+  local edit_width = math.min(26, math.max(14, math.floor(width * 0.42)))
+  local preview_left = left + edit_width + 2
+  local preview_width = math.max(12, width - edit_width - 3)
+  write_at(left + 1, top + 3, "Title", colors.gray, colors.white)
+  draw_inline_field(left + 1, top + 4, edit_width, "luma_creator_title", "Page title", colors.black)
+  write_at(left + 1, top + 6, "Text", colors.gray, colors.white)
+  draw_inline_field(left + 1, top + 7, edit_width, "luma_creator_body", "Page body", colors.black)
+  local tool_top = top + 9
+  draw_button("luma_add_heading", left + 1, tool_top, "Heading", nil, colors.purple)
+  draw_button("luma_add_text", left + 10, tool_top, "Text", nil, colors.purple)
+  draw_button("luma_clear", left + 17, tool_top, "Clear", nil, colors.gray)
+
+  fill(preview_left, top + 3, preview_width, math.max(1, height - 4), colors.lightGray)
+  write_at(preview_left + 1, top + 3, trim(state.luma_creator_title, preview_width - 2), colors.black, colors.lightGray)
+  local row_top = top + 5
+  for _, element in ipairs(state.luma_creator_elements or {}) do
+    if row_top >= top + height - 1 then
+      break
+    end
+    local marker = element.kind == "heading" and "# " or "- "
+    write_at(preview_left + 1, row_top, trim(marker .. tostring(element.text or ""), preview_width - 2), colors.black, colors.lightGray)
+    row_top = row_top + 1
+  end
+  if row_top < top + height - 1 then
+    local wrapped = wrap_text(state.luma_creator_body or "", preview_width - 2)
+    for _, line in ipairs(wrapped) do
+      if row_top >= top + height - 1 then
+        break
+      end
+      write_at(preview_left + 1, row_top, trim(line, preview_width - 2), colors.gray, colors.lightGray)
+      row_top = row_top + 1
+    end
+  end
+end
+
+function draw_luma_search(left, top, width, height)
+  fill(left, top, width, height, colors.white)
+  write_at(left + 2, top + 1, "Luma", colors.purple, colors.white)
+  draw_inline_field(left + 8, top + 1, math.max(10, width - 18), "luma_query", "Search or enter site", colors.black)
+  draw_button("luma_search", left + width - 8, top + 1, "Go", nil, colors.purple)
+  write_at(left + 2, top + 4, "Results for: " .. trim(state.luma_query, math.max(1, width - 17)), colors.black, colors.white)
+  fill(left + 2, top + 6, width - 4, 3, colors.lightGray)
+  write_at(left + 4, top + 6, "Luma Web Creator", colors.black, colors.lightGray)
+  write_at(left + 4, top + 7, "Create a page with text blocks and preview.", colors.gray, colors.lightGray)
+  draw_button("luma_creator", left + width - 14, top + 7, "Open", nil, colors.purple)
+  fill(left + 2, top + 10, width - 4, 3, colors.lightGray)
+  write_at(left + 4, top + 10, "DockOS Docs", colors.black, colors.lightGray)
+  write_at(left + 4, top + 11, "Local documentation and examples.", colors.gray, colors.lightGray)
+end
+
+function draw_luma_home(left, top, width, height)
+  fill(left, top, width, height, colors.white)
+  local logo_left = left + math.max(1, math.floor(width / 2) - 3)
+  write_at(logo_left, top + 2, "Luma", colors.purple, colors.white)
+  local search_width = math.min(44, math.max(16, width - 8))
+  local search_left = left + math.max(2, math.floor((width - search_width) / 2))
+  draw_inline_field(search_left, top + 4, search_width, "luma_query", "Search or type luma://creator", colors.black)
+  draw_button("luma_search", search_left + math.max(0, search_width - 5), top + 6, "Go", nil, colors.purple)
+  write_at(left + 2, top + 9, "Pinned", colors.gray, colors.white)
+  fill(left + 2, top + 10, 18, 4, colors.lightGray)
+  write_at(left + 4, top + 10, "Web Creator", colors.black, colors.lightGray)
+  write_at(left + 4, top + 11, "Build pages", colors.gray, colors.lightGray)
+  draw_button("luma_creator", left + 4, top + 12, "Open", nil, colors.purple)
+end
+
+function draw_luma(window_state)
   local left, top, width, height = content_rect(window_state)
-  fill(left, top, width, height, THEME.field)
-  write_at(left + 1, top, "Luma Browser", colors.cyan, THEME.field)
-  write_at(left + 1, top + 2, "Integrated web runtime is next.", colors.white, THEME.field)
-  write_at(left + 1, top + 3, "Installed: " .. tostring(luma_installed()), colors.lightGray, THEME.field)
-  write_at(left + 1, top + 5, "For now use Store to install/update Luma files.", colors.lightGray, THEME.field)
-  draw_button("store_open", left + 1, top + height - 2, "Open Store", { id = "store" }, THEME.button)
+  if state.luma_page == "creator" then
+    draw_luma_creator(left, top, width, height)
+  elseif state.luma_page == "search" then
+    draw_luma_search(left, top, width, height)
+  else
+    draw_luma_home(left, top, width, height)
+  end
+end
+
+function draw_studio_preview(left, top, width, height)
+  fill(left, top, width, height, colors.lightGray)
+  write_at(left + 1, top, "Preview", colors.black, colors.lightGray)
+  if state.studio_preview == "pong" then
+    local field_left = left + 2
+    local field_top = top + 2
+    local field_width = math.max(10, width - 4)
+    local field_height = math.max(5, height - 4)
+    fill(field_left, field_top, field_width, field_height, colors.black)
+    for row = 1, field_height do
+      if row % 2 == 0 then
+        write_at(field_left + math.floor(field_width / 2), field_top + row - 1, "|", colors.gray, colors.black)
+      end
+    end
+    write_at(field_left + 2, field_top + 2, "|", colors.white, colors.black)
+    write_at(field_left + field_width - 3, field_top + field_height - 3, "|", colors.white, colors.black)
+    write_at(field_left + math.floor(field_width / 2), field_top + math.floor(field_height / 2), "o", colors.orange, colors.black)
+  elseif state.studio_preview == "music" then
+    fill(left + 2, top + 2, math.max(10, width - 4), math.max(5, height - 4), colors.gray)
+    write_at(left + 4, top + 3, "Dock Beats", colors.white, colors.gray)
+    write_at(left + 4, top + 5, ">> ===o----", colors.orange, colors.gray)
+    draw_button("studio_run", left + 4, top + 7, "Play", nil, colors.orange)
+  else
+    local panel_left = left + 2
+    local panel_top = top + 2
+    local panel_width = math.max(10, width - 4)
+    fill(panel_left, panel_top, panel_width, math.max(4, height - 4), colors.white)
+    local row_top = panel_top + 1
+    for _, element in ipairs(state.studio_elements or {}) do
+      if row_top >= top + height - 1 then
+        break
+      end
+      if element.kind == "shape" then
+        fill(panel_left + 1, row_top, math.max(6, math.floor(panel_width * 0.45)), 1, colors.orange)
+        write_at(panel_left + 2, row_top, trim(element.label or "Shape", panel_width - 4), colors.black, colors.orange)
+      elseif element.kind == "textinput" then
+        fill(panel_left + 1, row_top, math.max(8, math.floor(panel_width * 0.55)), 1, colors.lightGray)
+        write_at(panel_left + 2, row_top, trim(element.label or "Input", panel_width - 4), colors.gray, colors.lightGray)
+      elseif element.kind == "image" then
+        fill(panel_left + 1, row_top, 6, 2, colors.blue)
+        write_at(panel_left + 8, row_top, trim(element.label or "Image", panel_width - 9), colors.gray, colors.white)
+        row_top = row_top + 1
+      else
+        write_at(panel_left + 1, row_top, trim(element.label or "Text", panel_width - 2), colors.black, colors.white)
+      end
+      row_top = row_top + 1
+    end
+  end
+end
+
+function draw_studio(window_state)
+  local left, top, width, height = content_rect(window_state)
+  fill(left, top, width, height, colors.black)
+  fill(left, top, width, 2, colors.gray)
+  local cursor_left = left + 1
+  cursor_left = cursor_left + draw_button("studio_file", cursor_left, top, "File", nil, colors.gray) + 1
+  cursor_left = cursor_left + draw_button("studio_edit", cursor_left, top, "Edit", nil, colors.gray) + 1
+  cursor_left = cursor_left + draw_button("studio_examples_toggle", cursor_left, top, "Examples", nil, colors.orange) + 1
+  cursor_left = cursor_left + draw_button("studio_run", cursor_left, top, "Run", nil, colors.lime) + 1
+  draw_button("studio_add", cursor_left, top, "Shape", "shape", colors.blue)
+  cursor_left = cursor_left + 8
+  draw_button("studio_add", cursor_left, top, "Input", "textinput", colors.blue)
+  cursor_left = cursor_left + 8
+  draw_button("studio_add", cursor_left, top, "Image", "image", colors.blue)
+
+  if state.studio_examples_open then
+    fill(left + 13, top + 1, 18, 4, colors.black)
+    draw_button("studio_example", left + 14, top + 1, "Blank", "blank", colors.gray)
+    draw_button("studio_example", left + 14, top + 2, "Ping Pong", "pong", colors.gray)
+    draw_button("studio_example", left + 14, top + 3, "Music Player", "music", colors.gray)
+  end
+
+  local editor_width = math.max(20, math.floor(width * 0.48))
+  local preview_left = left + editor_width + 1
+  local preview_width = math.max(12, width - editor_width - 1)
+  fill(left, top + 2, editor_width, height - 2, THEME.field)
+  fill(preview_left, top + 2, preview_width, height - 2, colors.lightGray)
+  write_at(left + 1, top + 2, "Code", colors.orange, THEME.field)
+  draw_inline_field(left + 1, top + 3, editor_width - 2, "studio_code", "Write app script", colors.black)
+  local lines = wrap_text(state.studio_code or "", editor_width - 2)
+  local line_top = top + 5
+  for index, line in ipairs(lines) do
+    if line_top >= top + height - 1 then
+      break
+    end
+    write_at(left + 1, line_top, trim(tostring(index) .. "  " .. line, editor_width - 2), colors.lightGray, THEME.field)
+    line_top = line_top + 1
+  end
+  write_at(left + 1, top + height - 1, trim(state.studio_message or "", editor_width - 2), colors.lime, THEME.field)
+  draw_studio_preview(preview_left, top + 2, preview_width, height - 2)
 end
 
 local function draw_window_content(window_state)
@@ -2318,6 +2622,8 @@ local function draw_window_content(window_state)
     draw_settings(window_state)
   elseif window_state.app == "blend" then
     draw_blend(window_state)
+  elseif window_state.app == "studio" then
+    draw_studio(window_state)
   elseif window_state.app == "terminal" then
     draw_terminal(window_state)
   elseif window_state.app == "luma" then
@@ -2712,6 +3018,7 @@ function render_wallpaper(gpu)
     local screen_height = state.external.pixel_height
     return {
       path_join(ASSETS_DIR, "wallpaper-" .. tostring(screen_width) .. "x" .. tostring(screen_height) .. ".png"),
+      path_join(ASSETS_DIR, "wallpaper-384x192.png"),
       path_join(ASSETS_DIR, "wallpaper-382x192.png"),
       path_join(ASSETS_DIR, "wallpaper-640x576.png"),
       path_join(ASSETS_DIR, "wallpaper-480x432.png"),
@@ -3130,6 +3437,10 @@ function handle_action(action, payload, mouse_left, mouse_top)
     finish_input(state.input and state.input.value or "")
   elseif action == "input_cancel" then
     cancel_input()
+  elseif action == "inline_focus" then
+    state.focused_field = payload
+    state.input = nil
+    state.modal = nil
   elseif action == "system_menu_toggle" then
     state.system_menu_open = not state.system_menu_open
   elseif action == "system_open" then
@@ -3209,9 +3520,31 @@ function handle_action(action, payload, mouse_left, mouse_top)
   elseif action == "blend_add_cube" then
     state.blend_object = "Cube " .. tostring((os.time and os.time()) or "")
     state.blend_mode = "Model"
+  elseif action == "luma_search" then
+    submit_luma_query()
+  elseif action == "luma_home" then
+    state.luma_page = "home"
+  elseif action == "luma_creator" then
+    state.luma_page = "creator"
+  elseif action == "luma_add_heading" then
+    table.insert(state.luma_creator_elements, { kind = "heading", text = state.luma_creator_title or "Heading" })
+  elseif action == "luma_add_text" then
+    table.insert(state.luma_creator_elements, { kind = "text", text = state.luma_creator_body or "Text" })
+  elseif action == "luma_clear" then
+    state.luma_creator_elements = {}
+  elseif action == "studio_examples_toggle" then
+    state.studio_examples_open = not state.studio_examples_open
+  elseif action == "studio_example" then
+    apply_studio_example(payload)
+  elseif action == "studio_add" then
+    studio_add_component(payload)
+  elseif action == "studio_run" then
+    submit_inline_field("studio_code")
   elseif action == "store_install" then
-    if payload.id == "luma" then
-      install_luma()
+    if payload and payload.trust == "built-in" then
+      open_app(payload.id)
+    elseif payload then
+      state.toast = "Package unavailable"
     end
   elseif action == "store_open" then
     open_app(payload.id)
@@ -3444,6 +3777,8 @@ function run_loop()
     elseif event == "key" then
       if handle_input_event(event, first) then
         -- input consumed
+      elseif handle_inline_field_event(event, first) then
+        -- inline field consumed
       elseif handle_terminal_event(event, first) then
         -- terminal consumed
       elseif first == keys.q then
@@ -3465,6 +3800,8 @@ function run_loop()
     elseif event == "char" or event == "paste" then
       if handle_input_event(event, first) then
         -- input consumed
+      elseif handle_inline_field_event(event, first) then
+        -- inline field consumed
       else
         handle_terminal_event(event, first)
       end
@@ -3474,16 +3811,19 @@ end
 
 function print_apps()
   print(DISPLAY_VERSION)
-  for _, app_id in ipairs(PINNED) do
+  local app_ids = {}
+  for app_id in pairs(APPS) do
+    table.insert(app_ids, app_id)
+  end
+  table.sort(app_ids)
+  for _, app_id in ipairs(app_ids) do
     local app = APPS[app_id]
     print(app.id .. " " .. app.name)
   end
 end
 
 function install_from_store(app_id)
-  if app_id == "luma" then
-    install_luma()
-  elseif app_id == "docs" or app_id == "paint" then
+  if APPS[app_id] then
     print("Built-in application.")
   else
     print("Application not found: " .. tostring(app_id))
@@ -3665,6 +4005,12 @@ elseif command == "store" then
   run_loop()
 elseif command == "files" then
   open_app("finder")
+  run_loop()
+elseif command == "luma" then
+  open_app("luma")
+  run_loop()
+elseif command == "studio" then
+  open_app("studio")
   run_loop()
 elseif command == "apps" then
   print_apps()
