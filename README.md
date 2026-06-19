@@ -54,6 +54,7 @@ Supported Tom bitmap monitor walls: `2x3`, `2x4`, `3x6`, `4x8`; `1x2` has a comp
 - **Store** - install/open apps.
 - **Documents** - write documents and print with a connected printer.
 - **Paint** - simple pixel paint app.
+- **Blend** - blocky 3D modeling and render preview app.
 - **Settings** - themes, display rescan, speakers, printers, DirectGPU.
 - **Luma** - browser shell, installable from Store.
 - **Terminal** - DockOS shell with file/app/power commands.

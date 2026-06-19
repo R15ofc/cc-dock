@@ -1,4 +1,4 @@
-local VERSION = "1.1.6"
+local VERSION = "1.1.7"
 local LUMA_INSTALLER_URL = "https://raw.githubusercontent.com/R15ofc/cc-luma/main/luma-installer.lua"
 local LUMA_SOURCE_URL = "https://raw.githubusercontent.com/R15ofc/cc-luma/main/cc"
 local DOCS_DIR = "/dock/documents"
@@ -150,27 +150,28 @@ local APPS = {
   docs = { id = "docs", name = "Docs", icon = "DC", icon_asset = "docs_tile", color = colors.orange },
   paint = { id = "paint", name = "Paint", icon = "PT", icon_asset = "paint_tile", color = colors.pink },
   settings = { id = "settings", name = "Settings", icon = "SG", icon_asset = "settings_tile", color = colors.orange },
+  blend = { id = "blend", name = "Blend", icon = "3D", icon_asset = "blend_tile", color = colors.orange },
   luma = { id = "luma", name = "Luma", icon = "LM", icon_asset = "luma_tile", color = colors.purple },
   terminal = { id = "terminal", name = "Terminal", icon = ">_", icon_asset = "terminal_tile", color = colors.green },
 }
 
-local PINNED = { "launcher", "finder", "store", "docs", "paint", "settings", "luma", "terminal" }
+local PINNED = { "launcher", "finder", "store", "docs", "paint", "blend", "settings", "terminal" }
 
 local STORE_APPS = {
   { id = "docs", name = "Docs", trust = "built-in", popular = true, description = "Write documents and print them." },
   { id = "paint", name = "Paint", trust = "built-in", popular = true, description = "Draw images on a wide canvas." },
+  { id = "blend", name = "Blend", trust = "built-in", popular = true, description = "Model blocky 3D scenes and preview renders." },
+  { id = "finder", name = "Files", trust = "built-in", description = "Browse, create, rename, and delete files." },
+  { id = "terminal", name = "Terminal", trust = "built-in", description = "Run DockOS shell commands." },
+  { id = "settings", name = "Settings", trust = "built-in", description = "Themes, display, speakers, printer, security." },
   {
     id = "luma",
     name = "Luma Browser",
     trust = "verified",
-    popular = true,
     description = "Browser for Luma pages and internet gateway.",
     installer = LUMA_INSTALLER_URL,
     source = LUMA_SOURCE_URL,
   },
-  { id = "finder", name = "Files", trust = "built-in", description = "Browse, create, rename, and delete files." },
-  { id = "terminal", name = "Terminal", trust = "built-in", description = "Run DockOS shell commands." },
-  { id = "settings", name = "Settings", trust = "built-in", description = "Themes, display, speakers, printer, security." },
 }
 
 local state = {
@@ -191,6 +192,8 @@ local state = {
   docs_menu_open = false,
   paint_color = colors.white,
   paint_cells = {},
+  blend_mode = "Layout",
+  blend_object = "Cube",
   settings_message = "",
   settings_tab = "general",
   app_search_query = "",
@@ -834,6 +837,7 @@ local function bring_to_front(window_id)
   if not state.windows[window_id] then
     return
   end
+  state.windows[window_id].minimized = false
   local next_order = {}
   for _, existing_window_id in ipairs(state.window_order) do
     if existing_window_id ~= window_id then
@@ -861,6 +865,7 @@ local function create_window(app_id, title, preferred_width, preferred_height)
     width = window_width,
     height = window_height,
     fullscreen = false,
+    minimized = false,
     saved_rect = nil,
     data = {},
   }
@@ -898,6 +903,24 @@ local function close_window(window_id)
     state.active_window = state.window_order[#state.window_order]
   end
   remove_open_app_if_unused(window_state.app)
+end
+
+local function minimize_window(window_id)
+  local window_state = state.windows[window_id]
+  if not window_state then
+    return
+  end
+  window_state.minimized = true
+  if state.active_window == window_id then
+    state.active_window = nil
+    for index = #state.window_order, 1, -1 do
+      local candidate = state.windows[state.window_order[index]]
+      if candidate and not candidate.minimized then
+        state.active_window = candidate.id
+        break
+      end
+    end
+  end
 end
 
 local function toggle_fullscreen(window_state)
@@ -1175,8 +1198,8 @@ function open_app(app_id)
   if not app then
     return
   end
-  local preferred_width = app_id == "finder" and 58 or app_id == "paint" and 54 or app_id == "launcher" and 44 or 46
-  local preferred_height = app_id == "finder" and 17 or app_id == "paint" and 18 or app_id == "launcher" and 16 or 15
+  local preferred_width = app_id == "finder" and 58 or app_id == "paint" and 54 or app_id == "blend" and 64 or app_id == "launcher" and 44 or 46
+  local preferred_height = app_id == "finder" and 17 or app_id == "paint" and 18 or app_id == "blend" and 20 or app_id == "launcher" and 16 or 15
   create_window(app_id, app.name, preferred_width, preferred_height)
 end
 
@@ -1261,6 +1284,7 @@ local function draw_desktop()
     { app = "store", name = "Store", icon = "ST" },
     { app = "docs", name = "Docs", icon = "DC" },
     { app = "paint", name = "Paint", icon = "PT" },
+    { app = "blend", name = "Blend", icon = "3D" },
     { action = "system_about", name = "About", icon = "i", icon_asset = "info_tile", color = colors.gray },
   }
   local left = 3
@@ -1340,7 +1364,7 @@ local function draw_dock()
     draw_dock_icon(cursor_left, dock_top, app_id, "dock_pinned")
     cursor_left = cursor_left + 5
   end
-  write_at(cursor_left, dock_top, "|", colors.lightGray, THEME.dock)
+  fill(cursor_left, dock_top, 1, 2, colors.gray)
   add_hit("dock_drop_end", cursor_left, dock_top, 2, 2, nil)
   cursor_left = cursor_left + 2
   for _, app_id in ipairs(state.open_dock_order) do
@@ -1363,18 +1387,18 @@ local function draw_window_frame(window_state)
   local app = window_state.app and APPS[window_state.app] or nil
   local title_color = active and (app and app.color or THEME.window_title) or THEME.window_inactive
   local title_foreground = active and foreground_for_background(title_color) or colors.lightGray
-  fill(window_state.left + 1, window_state.top + 1, window_state.width, window_state.height, colors.black)
   fill(window_state.left, window_state.top, window_state.width, window_state.height, THEME.window)
   fill(window_state.left, window_state.top, window_state.width, 1, title_color)
   add_hit("window_focus", window_state.left, window_state.top, window_state.width, window_state.height, window_state.id)
-  local close_left = window_state.left + window_state.width - 2
-  local fullscreen_left = math.max(window_state.left + 1, close_left - 3)
-  write_at(window_state.left + 1, window_state.top, trim(window_state.title, math.max(1, window_state.width - 8)), title_foreground, title_color)
-  write_at(fullscreen_left, window_state.top, "[]", colors.white, title_color)
-  write_at(close_left, window_state.top, "x", colors.white, THEME.danger)
-  add_hit("window_close", close_left, window_state.top, 1, 1, window_state.id)
-  add_hit("window_fullscreen", fullscreen_left, window_state.top, 2, 1, window_state.id)
-  add_hit("window_drag", window_state.left, window_state.top, math.max(1, window_state.width - 6), 1, window_state.id)
+  local controls_left = math.max(window_state.left + 1, window_state.left + window_state.width - 6)
+  write_at(window_state.left + 1, window_state.top, trim(window_state.title, math.max(1, controls_left - window_state.left - 2)), title_foreground, title_color)
+  fill(controls_left, window_state.top, 1, 1, colors.red)
+  fill(controls_left + 2, window_state.top, 1, 1, colors.yellow)
+  fill(controls_left + 4, window_state.top, 1, 1, colors.lime)
+  add_hit("window_close", controls_left, window_state.top, 1, 1, window_state.id)
+  add_hit("window_minimize", controls_left + 2, window_state.top, 1, 1, window_state.id)
+  add_hit("window_fullscreen", controls_left + 4, window_state.top, 1, 1, window_state.id)
+  add_hit("window_drag", window_state.left, window_state.top, math.max(1, controls_left - window_state.left), 1, window_state.id)
 end
 
 local function content_rect(window_state)
@@ -1979,6 +2003,64 @@ local function draw_launcher(window_state)
   end
 end
 
+local function draw_blend(window_state)
+  local left, top, width, height = content_rect(window_state)
+  fill(left, top, width, height, colors.black)
+  fill(left, top, width, 2, colors.gray)
+  local cursor_left = left + 1
+  cursor_left = cursor_left + draw_button("blend_mode_layout", cursor_left, top, "Layout", nil, state.blend_mode == "Layout" and colors.orange or colors.gray) + 1
+  cursor_left = cursor_left + draw_button("blend_mode_model", cursor_left, top, "Model", nil, state.blend_mode == "Model" and colors.orange or colors.gray) + 1
+  cursor_left = cursor_left + draw_button("blend_mode_render", cursor_left, top, "Render", nil, state.blend_mode == "Render" and colors.orange or colors.gray) + 1
+  cursor_left = cursor_left + draw_button("blend_add_cube", cursor_left, top, "Cube", nil, colors.blue) + 1
+  draw_button("blend_render", cursor_left, top, "Preview", nil, colors.green)
+
+  local sidebar_width = math.min(18, math.max(12, math.floor(width * 0.24)))
+  local timeline_height = 3
+  local viewport_left = left + sidebar_width + 1
+  local viewport_top = top + 3
+  local viewport_width = math.max(16, width - sidebar_width - 2)
+  local viewport_height = math.max(8, height - timeline_height - 4)
+  fill(left, top + 2, sidebar_width, height - 2, THEME.field)
+  fill(viewport_left, viewport_top, viewport_width, viewport_height, colors.black)
+  write_at(left + 1, top + 3, "Scene", colors.orange, THEME.field)
+  write_at(left + 1, top + 5, "Object", colors.lightGray, THEME.field)
+  write_at(left + 1, top + 6, trim(state.blend_object, sidebar_width - 2), colors.white, THEME.field)
+  write_at(left + 1, top + 8, "Mode", colors.lightGray, THEME.field)
+  write_at(left + 1, top + 9, state.blend_mode, colors.white, THEME.field)
+  write_at(left + 1, top + 11, "Tools", colors.lightGray, THEME.field)
+  write_at(left + 1, top + 12, "Move Scale", colors.white, THEME.field)
+  write_at(left + 1, top + 13, "Extrude Cut", colors.white, THEME.field)
+
+  for row = 0, viewport_height - 1 do
+    local row_top = viewport_top + row
+    if row % 3 == 0 then
+      fill(viewport_left, row_top, viewport_width, 1, colors.gray)
+    end
+  end
+  for col = 0, viewport_width - 1, 6 do
+    fill(viewport_left + col, viewport_top, 1, viewport_height, colors.gray)
+  end
+  local cx = viewport_left + math.floor(viewport_width / 2)
+  local cy = viewport_top + math.floor(viewport_height / 2)
+  write_at(cx - 5, cy - 3, "+------+")
+  write_at(cx - 6, cy - 2, "/      /|")
+  write_at(cx - 7, cy - 1, "+------+ |", colors.orange, nil)
+  write_at(cx - 7, cy, "|      | +", colors.orange, nil)
+  write_at(cx - 7, cy + 1, "|      |/", colors.orange, nil)
+  write_at(cx - 7, cy + 2, "+------+")
+  write_at(viewport_left + 1, viewport_top, "Viewport  Grid  Camera  Light", colors.lightGray, colors.black)
+  if state.blend_mode == "Render" then
+    fill(cx - 8, cy + 4, 18, 1, colors.orange)
+    write_at(cx - 6, cy + 4, "Preview ready", colors.black, colors.orange)
+  end
+
+  local timeline_top = top + height - timeline_height
+  fill(viewport_left, timeline_top, viewport_width, timeline_height, THEME.field)
+  write_at(viewport_left + 1, timeline_top, "Timeline", colors.lightGray, THEME.field)
+  fill(viewport_left + 1, timeline_top + 1, math.max(1, viewport_width - 2), 1, colors.gray)
+  fill(viewport_left + 2, timeline_top + 1, math.max(1, math.floor((viewport_width - 4) * 0.35)), 1, colors.orange)
+end
+
 local function draw_terminal(window_state)
   terminal_boot()
   local left, top, width, height = content_rect(window_state)
@@ -2021,6 +2103,8 @@ local function draw_window_content(window_state)
     draw_paint(window_state)
   elseif window_state.app == "settings" then
     draw_settings(window_state)
+  elseif window_state.app == "blend" then
+    draw_blend(window_state)
   elseif window_state.app == "terminal" then
     draw_terminal(window_state)
   elseif window_state.app == "luma" then
@@ -2031,7 +2115,7 @@ end
 local function draw_windows()
   for _, window_id in ipairs(state.window_order) do
     local window_state = state.windows[window_id]
-    if window_state then
+    if window_state and not window_state.minimized then
       draw_window_frame(window_state)
       draw_window_content(window_state)
     end
@@ -2786,6 +2870,8 @@ local function handle_action(action, payload, mouse_left, mouse_top)
     bring_to_front(payload)
   elseif action == "window_close" then
     close_window(payload)
+  elseif action == "window_minimize" then
+    minimize_window(payload)
   elseif action == "window_fullscreen" then
     local window_state = state.windows[payload]
     if window_state then
@@ -2804,6 +2890,16 @@ local function handle_action(action, payload, mouse_left, mouse_top)
       }
       bring_to_front(payload)
     end
+  elseif action == "blend_mode_layout" then
+    state.blend_mode = "Layout"
+  elseif action == "blend_mode_model" then
+    state.blend_mode = "Model"
+  elseif action == "blend_mode_render" or action == "blend_render" then
+    state.blend_mode = "Render"
+    state.toast = "Blend preview rendered"
+  elseif action == "blend_add_cube" then
+    state.blend_object = "Cube " .. tostring((os.time and os.time()) or "")
+    state.blend_mode = "Model"
   elseif action == "store_install" then
     if payload.id == "luma" then
       install_luma()

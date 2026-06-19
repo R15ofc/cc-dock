@@ -27,6 +27,7 @@ local OPTIONAL_ASSETS = {
   { source = "icons/folder_tile.png", target = "/dock/assets/icons/folder_tile.png", binary = true },
   { source = "icons/store_tile.png", target = "/dock/assets/icons/store_tile.png", binary = true },
   { source = "icons/docs_tile.png", target = "/dock/assets/icons/docs_tile.png", binary = true },
+  { source = "icons/blend_tile.png", target = "/dock/assets/icons/blend_tile.png", binary = true },
   { source = "icons/paint_tile.png", target = "/dock/assets/icons/paint_tile.png", binary = true },
   { source = "icons/settings_tile.png", target = "/dock/assets/icons/settings_tile.png", binary = true },
   { source = "icons/luma_tile.png", target = "/dock/assets/icons/luma_tile.png", binary = true },
