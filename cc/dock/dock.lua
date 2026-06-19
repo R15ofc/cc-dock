@@ -1,4 +1,4 @@
-local VERSION = "1.2.5"
+local VERSION = "1.2.6"
 local LUMA_INSTALLER_URL = "https://raw.githubusercontent.com/R15ofc/cc-luma/main/luma-installer.lua"
 local LUMA_SOURCE_URL = "https://raw.githubusercontent.com/R15ofc/cc-luma/main/cc"
 local DOCS_DIR = "/dock/documents"
@@ -2287,7 +2287,7 @@ local function active_fullscreen_window()
   return window_state and window_state.fullscreen and not window_state.minimized
 end
 
-local function draw_toast()
+function draw_toast()
   if not state.toast or state.toast == "" then
     return
   end
@@ -2298,7 +2298,7 @@ local function draw_toast()
   write_at(left + 1, screen_height - 4, text, colors.cyan, colors.black)
 end
 
-local function draw_modal()
+function draw_modal()
   if not state.modal then
     return
   end
@@ -2321,7 +2321,7 @@ local function draw_modal()
   end
 end
 
-local function draw_input()
+function draw_input()
   if not state.input then
     return
   end
@@ -2349,7 +2349,7 @@ local function draw_input()
   draw_button("input_cancel", cursor_left, button_top, "Cancel", nil, colors.gray)
 end
 
-local function color_rgb(color)
+function color_rgb(color)
   local map = {
     [colors.white] = { 245, 245, 245 },
     [colors.orange] = { 255, 149, 0 },
@@ -2371,37 +2371,37 @@ local function color_rgb(color)
   return map[color] or map[colors.white]
 end
 
-local function gpu_rect(gpu, display, left, top, width, height, color)
+function gpu_rect(gpu, display, left, top, width, height, color)
   local rgb = color_rgb(color)
   if gpu.fillRect then
     gpu.fillRect(display, left, top, width, height, rgb[1], rgb[2], rgb[3])
   end
 end
 
-local function gpu_text(gpu, display, text, left, top, color, size, style)
+function gpu_text(gpu, display, text, left, top, color, size, style)
   local rgb = color_rgb(color)
   if gpu.drawText then
     gpu.drawText(display, tostring(text or ""), left, top, rgb[1], rgb[2], rgb[3], "Arial", size or 14, style or "bold")
   end
 end
 
-local function color_value(color)
+function color_value(color)
   local rgb = color_rgb(color)
   return rgb[1] * 65536 + rgb[2] * 256 + rgb[3]
 end
 
-local function rgb_value(red, green, blue)
+function rgb_value(red, green, blue)
   red = math.max(0, math.min(255, math.floor(red or 0)))
   green = math.max(0, math.min(255, math.floor(green or 0)))
   blue = math.max(0, math.min(255, math.floor(blue or 0)))
   return red * 65536 + green * 256 + blue
 end
 
-local function lerp(left, right, amount)
+function lerp(left, right, amount)
   return left + (right - left) * amount
 end
 
-local function lerp_rgb(left, right, amount)
+function lerp_rgb(left, right, amount)
   return rgb_value(
     lerp(left[1], right[1], amount),
     lerp(left[2], right[2], amount),
@@ -2409,7 +2409,7 @@ local function lerp_rgb(left, right, amount)
   )
 end
 
-local function peripheral_type_text(name)
+function peripheral_type_text(name)
   if not peripheral or not peripheral.getType then
     return ""
   end
@@ -2423,7 +2423,7 @@ local function peripheral_type_text(name)
   return tostring(kind)
 end
 
-local function find_peripheral(predicate)
+function find_peripheral(predicate)
   if not peripheral or not peripheral.getNames or not peripheral.wrap then
     return nil, nil
   end
@@ -2437,22 +2437,22 @@ local function find_peripheral(predicate)
   return nil, nil
 end
 
-local function is_tom_gpu(_, device, kind)
+function is_tom_gpu(_, device, kind)
   if type(device.refreshSize) == "function" and type(device.sync) == "function" then
     return type(device.filledRectangle) == "function" or type(device.drawText) == "function" or type(device.fill) == "function"
   end
   return kind:find("gpu", 1, true) and type(device.filledRectangle) == "function"
 end
 
-local function is_tom_keyboard(_, device, kind)
+function is_tom_keyboard(_, device, kind)
   return type(device.setFireNativeEvents) == "function" or kind:find("keyboard", 1, true) ~= nil
 end
 
-local function is_external_monitor(_, device, kind)
+function is_external_monitor(_, device, kind)
   return kind:find("monitor", 1, true) ~= nil and type(device.setFireNativeEvents) ~= "function"
 end
 
-local function refresh_external_size()
+function refresh_external_size()
   local gpu = state.external.gpu
   local pixel_width = DEFAULT_EXTERNAL_WIDTH * CELL_WIDTH
   local pixel_height = DEFAULT_EXTERNAL_HEIGHT * CELL_HEIGHT
@@ -2481,7 +2481,7 @@ local function refresh_external_size()
   state.virtual_height = math.max(18, math.floor(state.external.pixel_height / state.external.cell_height))
 end
 
-local function initialize_tom_gpu(force)
+function initialize_tom_gpu(force)
   local gpu = state.external.gpu
   if not gpu then
     state.external.gpu_ready = false
@@ -2513,7 +2513,7 @@ local function initialize_tom_gpu(force)
   return ok
 end
 
-local function scan_external_peripherals()
+function scan_external_peripherals()
   local gpu_name, gpu = find_peripheral(is_tom_gpu)
   state.external.gpu_name = gpu_name
   state.external.gpu = gpu
@@ -2545,13 +2545,13 @@ local function scan_external_peripherals()
   state.settings_message = table.concat(parts, " | ")
 end
 
-local function start_peripheral_scan_timer()
+function start_peripheral_scan_timer()
   if os and os.startTimer then
     state.peripheral_scan_timer = os.startTimer(PERIPHERAL_SCAN_SECONDS)
   end
 end
 
-local function tom_fill_rect(gpu, left, top, width, height, color)
+function tom_fill_rect(gpu, left, top, width, height, color)
   left = math.max(1, math.floor(tonumber(left) or 1))
   top = math.max(1, math.floor(tonumber(top) or 1))
   width = math.floor(tonumber(width) or 0)
@@ -2566,7 +2566,7 @@ local function tom_fill_rect(gpu, left, top, width, height, color)
   end
 end
 
-local function tom_fill_rgb(gpu, left, top, width, height, rgb)
+function tom_fill_rgb(gpu, left, top, width, height, rgb)
   left = math.max(1, math.floor(tonumber(left) or 1))
   top = math.max(1, math.floor(tonumber(top) or 1))
   width = math.floor(tonumber(width) or 0)
@@ -2579,7 +2579,7 @@ local function tom_fill_rgb(gpu, left, top, width, height, rgb)
   gpu.filledRectangle(left, top, width, height, rgb)
 end
 
-local function tom_round_rect(gpu, left, top, width, height, radius, rgb)
+function tom_round_rect(gpu, left, top, width, height, radius, rgb)
   radius = math.max(0, math.min(math.floor(radius or 0), math.floor(math.min(width, height) / 2)))
   if radius <= 1 then
     tom_fill_rgb(gpu, left, top, width, height, rgb)
@@ -2595,7 +2595,7 @@ local function tom_round_rect(gpu, left, top, width, height, radius, rgb)
   end
 end
 
-local function tom_draw_text(gpu, left, top, text, foreground, background)
+function tom_draw_text(gpu, left, top, text, foreground, background)
   if not gpu.drawText then
     return
   end
@@ -2633,7 +2633,7 @@ local TINY_FONT = {
   [" "] = { "000", "000", "000", "000", "000" },
 }
 
-local function tom_tiny_text(gpu, left, top, text, color, scale)
+function tom_tiny_text(gpu, left, top, text, color, scale)
   scale = math.max(1, math.floor(tonumber(scale) or 1))
   local rgb = color_value(color or colors.white)
   local cursor = math.floor(tonumber(left) or 1)
@@ -2653,7 +2653,7 @@ local function tom_tiny_text(gpu, left, top, text, color, scale)
   end
 end
 
-local function render_wallpaper(gpu)
+function render_wallpaper(gpu)
   local function wallpaper_candidates()
     local screen_width = state.external.pixel_width
     local screen_height = state.external.pixel_height
@@ -2739,7 +2739,7 @@ local function render_wallpaper(gpu)
   end
 end
 
-local function load_icon_image(gpu, path)
+function load_icon_image(gpu, path)
   if not gpu.decodeImage or not gpu.drawImage or not path or not fs.exists(path) or fs.isDir(path) then
     return nil
   end
@@ -2768,7 +2768,7 @@ local function load_icon_image(gpu, path)
   return image
 end
 
-local function render_image_op(gpu, op, pixel_left, pixel_top, pixel_width, pixel_height)
+function render_image_op(gpu, op, pixel_left, pixel_top, pixel_width, pixel_height)
   pixel_width = pixel_width or op.width * state.external.cell_width
   pixel_height = pixel_height or op.height * state.external.cell_height
   if op.background then
@@ -2791,7 +2791,7 @@ local function render_image_op(gpu, op, pixel_left, pixel_top, pixel_width, pixe
   end
 end
 
-local function should_skip_highres_op(op)
+function should_skip_highres_op(op)
   if op.kind ~= "fill" then
     return false
   end
@@ -2801,7 +2801,7 @@ local function should_skip_highres_op(op)
   return false
 end
 
-local function op_pixel_rect(op)
+function op_pixel_rect(op)
   local op_left = tonumber(op.left) or 1
   local op_top = tonumber(op.top) or 1
   local op_width = tonumber(op.width) or math.max(1, #(op.text or op.fallback or ""))
@@ -2819,7 +2819,7 @@ local function op_pixel_rect(op)
   return pixel_left, pixel_top, math.max(0, pixel_width), math.max(0, pixel_height)
 end
 
-local function render_gpu_error(gpu, err)
+function render_gpu_error(gpu, err)
   state.external.gpu_error = tostring(err or "render failed")
   if gpu.fill then
     pcall(gpu.fill, rgb_value(0, 0, 0))
@@ -2834,7 +2834,7 @@ local function render_gpu_error(gpu, err)
   end
 end
 
-local function render_tom_gpu()
+function render_tom_gpu()
   local gpu = state.external.gpu
   if not state.headless or not gpu then
     return
@@ -2882,7 +2882,7 @@ local function render_tom_gpu()
   end
 end
 
-local function select_boot_logo(gpu, screen_width, screen_height)
+function select_boot_logo(gpu, screen_width, screen_height)
   local candidates = {
     { path = path_join(ASSETS_DIR, "brand/dock_boot_logo_440.png"), width = 440, height = 190 },
     { path = path_join(ASSETS_DIR, "brand/dock_boot_logo_320.png"), width = 320, height = 138 },
@@ -2912,7 +2912,7 @@ local function select_boot_logo(gpu, screen_width, screen_height)
   return nil, 0, 0
 end
 
-local function show_boot_splash()
+function show_boot_splash()
   local gpu = state.external.gpu
   if not gpu or state.boot_splash_done then
     return
@@ -2956,7 +2956,7 @@ local function show_boot_splash()
   end)
 end
 
-local function draw_directgpu()
+function draw_directgpu()
   if not state.directgpu or not state.directgpu.gpu or not state.directgpu.display then
     return
   end
@@ -3042,7 +3042,7 @@ function draw()
   end
 end
 
-local function draw_or_stop()
+function draw_or_stop()
   local ok, err = pcall(draw)
   if ok then
     return true
@@ -3070,7 +3070,7 @@ local function draw_or_stop()
   return false
 end
 
-local function handle_action(action, payload, mouse_left, mouse_top)
+function handle_action(action, payload, mouse_left, mouse_top)
   if action == "modal_close" then
     state.modal = nil
   elseif action == "input_ok" then
@@ -3251,7 +3251,7 @@ local function handle_action(action, payload, mouse_left, mouse_top)
   end
 end
 
-local function pixel_to_cell(pixel_left, pixel_top)
+function pixel_to_cell(pixel_left, pixel_top)
   local left = math.floor(math.max(0, (tonumber(pixel_left) or 1) - 1) / state.external.cell_width) + 1
   local top = math.floor(math.max(0, (tonumber(pixel_top) or 1) - 1) / state.external.cell_height) + 1
   left = math.max(1, math.min(state.virtual_width, left))
@@ -3259,7 +3259,7 @@ local function pixel_to_cell(pixel_left, pixel_top)
   return left, top
 end
 
-local function monitor_event_pixels(first, second, third, fourth)
+function monitor_event_pixels(first, second, third, fourth)
   if type(first) == "number" and type(second) == "number" then
     return first, second, third
   end
@@ -3269,7 +3269,7 @@ local function monitor_event_pixels(first, second, third, fourth)
   return 0, 0, third
 end
 
-local function normalize_external_event(event, first, second, third, fourth)
+function normalize_external_event(event, first, second, third, fourth)
   if event == "tm_keyboard_key" then
     return "key", second, third
   elseif event == "tm_keyboard_key_up" then
@@ -3302,14 +3302,14 @@ local function normalize_external_event(event, first, second, third, fourth)
   return event, first, second, third
 end
 
-local function active_app()
+function active_app()
   if state.active_window and state.windows[state.active_window] then
     return state.windows[state.active_window].app
   end
   return nil
 end
 
-local function handle_terminal_event(event, first)
+function handle_terminal_event(event, first)
   if active_app() ~= "terminal" or state.input or state.modal then
     return false
   end
@@ -3335,7 +3335,7 @@ local function handle_terminal_event(event, first)
   return false
 end
 
-local function run_loop()
+function run_loop()
   state.headless = true
   load_config()
   blank_terminal()
@@ -3418,7 +3418,7 @@ local function run_loop()
   end
 end
 
-local function print_apps()
+function print_apps()
   print("DockOS " .. VERSION)
   for _, app_id in ipairs(PINNED) do
     local app = APPS[app_id]
@@ -3426,7 +3426,7 @@ local function print_apps()
   end
 end
 
-local function install_from_store(app_id)
+function install_from_store(app_id)
   if app_id == "luma" then
     install_luma()
   elseif app_id == "docs" or app_id == "paint" then
@@ -3436,7 +3436,7 @@ local function install_from_store(app_id)
   end
 end
 
-local function method_summary(name)
+function method_summary(name)
   if not peripheral or not peripheral.getMethods then
     return ""
   end
@@ -3448,11 +3448,11 @@ local function method_summary(name)
   return table.concat(methods, ",")
 end
 
-local function cube_vertex_value(triangle, offset)
+function cube_vertex_value(triangle, offset)
   return tonumber(triangle:sub(offset, offset)) or 0
 end
 
-local function draw_cube_triangles(gl)
+function draw_cube_triangles(gl)
   gl.glBegin()
   local index = 0
   for triangle in CUBE_TRIANGLES:gmatch("[^;]+") do
@@ -3472,7 +3472,7 @@ local function draw_cube_triangles(gl)
   gl.glEnd()
 end
 
-local function render_3d_doctor_frame(gpu)
+function render_3d_doctor_frame(gpu)
   initialize_tom_gpu(true)
   if gpu.fill then
     gpu.fill(0)
@@ -3497,7 +3497,7 @@ local function render_3d_doctor_frame(gpu)
   end
 end
 
-local function run_3d_doctor()
+function run_3d_doctor()
   state.headless = false
   reset_colors()
   print("DockOS " .. VERSION .. " 3D doctor")
@@ -3519,7 +3519,7 @@ local function run_3d_doctor()
   end
 end
 
-local function run_doctor()
+function run_doctor()
   state.headless = false
   reset_colors()
   print("DockOS " .. VERSION .. " doctor")
