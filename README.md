@@ -2,12 +2,13 @@
 
 Standalone OS shell for CC:Tweaked Advanced Computers.
 
-Current release: **DockOS Ridge 1.2.7**.
+Current release: **DockOS Ridge 1.2.8**.
 
 DockOS release names follow a simple landscape line: short, serious names tied
 to the default visual identity. Example future names: Ridge, Summit, Harbor,
 Aurora, Atlas.
 
+DockOS currently targets a `3x6` Tom bitmap-monitor wall (`480x432`) as the primary desktop size.
 DockOS renders on an external Tom's Peripherals GPU/Bitmap Monitor setup.
 The computer's own terminal is intentionally kept blank while the OS is running.
 
@@ -46,6 +47,7 @@ Supported Tom bitmap monitor walls: `2x3`, `2x4`, `3x6`, `4x8`; `1x2` has a comp
 - Minimal black boot splash with centered white Dock logo and white loading bar.
 - High-resolution Tom GPU renderer with square opaque surfaces and strict Z-order.
 - Linux-style app windows with dark header bars, close, minimize, fullscreen, focus, and drag.
+- Sharp square app icons in the left dock and bottom shelf, tuned for `3x6`.
 - Pinned left-dock apps plus open-app indicators.
 - Files app with create folder/file, rename, delete, preview, and open.
 - Store has search, popular square app cards, and compact app rows.

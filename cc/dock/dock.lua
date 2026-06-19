@@ -1,4 +1,4 @@
-local VERSION = "1.2.7"
+local VERSION = "1.2.8"
 local RELEASE_NAME = "Ridge"
 local DISPLAY_VERSION = "DockOS " .. RELEASE_NAME .. " " .. VERSION
 local LUMA_INSTALLER_URL = "https://raw.githubusercontent.com/R15ofc/cc-luma/main/luma-installer.lua"
@@ -22,6 +22,13 @@ local DEFAULT_EXTERNAL_HEIGHT = 30
 local CELL_WIDTH = 6
 local CELL_HEIGHT = 9
 local PERIPHERAL_SCAN_SECONDS = 1
+local TARGET_3X6_WIDTH = 480
+local TARGET_3X6_HEIGHT = 432
+local DOCK_LEFT_PIXELS = 42
+local DOCK_BOTTOM_PIXELS = 46
+local DOCK_BUTTON_PIXELS = 32
+local DOCK_ICON_PIXELS = 24
+local DOCK_GAP_PIXELS = 8
 
 local THEME = {
   desktop = colors.black,
@@ -225,6 +232,8 @@ local state = {
   docs_menu_open = false,
   paint_color = colors.white,
   paint_cells = {},
+  paint_canvas_width = 42,
+  paint_canvas_height = 14,
   blend_mode = "Layout",
   blend_object = "Cube",
   settings_message = "",
@@ -320,6 +329,32 @@ local function screen_size()
   end
   local screen_width, screen_height = term.getSize()
   return screen_width or 51, screen_height or 19
+end
+
+local function ceil_div(value, divisor)
+  return math.floor((value + divisor - 1) / divisor)
+end
+
+local function shell_left_cell()
+  if not state.headless then
+    return 1
+  end
+  return ceil_div(DOCK_LEFT_PIXELS, state.external.cell_width) + 1
+end
+
+local function shell_bottom_cells()
+  if not state.headless then
+    return 2
+  end
+  return ceil_div(DOCK_BOTTOM_PIXELS, state.external.cell_height)
+end
+
+local function shell_usable_rect()
+  local screen_width, screen_height = screen_size()
+  local left = shell_left_cell()
+  local top = 1
+  local bottom = shell_bottom_cells()
+  return left, top, math.max(24, screen_width - left + 1), math.max(10, screen_height - top - bottom + 1)
 end
 
 local function trim(text, width)
@@ -939,19 +974,16 @@ local function bring_to_front(window_id)
 end
 
 local function create_window(app_id, title, preferred_width, preferred_height)
-  local screen_width, screen_height = screen_size()
+  local shell_left, shell_top, usable_width, usable_height = shell_usable_rect()
   local window_id = state.next_window_id
   state.next_window_id = state.next_window_id + 1
-  local shell_left = 5
-  local shell_top = 1
-  local shell_bottom = 3
-  local usable_width = math.max(24, screen_width - shell_left)
-  local usable_height = math.max(10, screen_height - shell_top - shell_bottom + 1)
   local window_width = math.min(preferred_width or 42, usable_width)
   local window_height = math.min(preferred_height or 14, usable_height)
   local offset = (#state.window_order % 3) * 2
+  local screen_width, screen_height = screen_size()
+  local shell_bottom = shell_bottom_cells()
   local max_left = math.max(shell_left, screen_width - window_width + 1)
-  local max_top = math.max(shell_top, screen_height - window_height + 1)
+  local max_top = math.max(shell_top, screen_height - shell_bottom - window_height + 1)
   local window_state = {
     id = window_id,
     app = app_id,
@@ -1258,7 +1290,7 @@ end
 local function open_luma()
   if not luma_installed() then
     state.toast = "Install Luma in Store"
-    local store_window = find_window_by_app("store") or create_window("store", "Store", 46, 15)
+    local store_window = find_window_by_app("store") or create_window("store", "Store", 68, 34)
     bring_to_front(store_window.id)
     return
   end
@@ -1267,7 +1299,7 @@ local function open_luma()
     bring_to_front(existing_window.id)
     return
   end
-  create_window("luma", "Luma Browser", 58, 17)
+  create_window("luma", "Luma Browser", 70, 34)
 end
 
 local function open_terminal()
@@ -1277,7 +1309,7 @@ local function open_terminal()
     bring_to_front(existing_window.id)
     return
   end
-  create_window("terminal", "Terminal", 58, 17)
+  create_window("terminal", "Terminal", 70, 32)
 end
 
 function open_app(app_id)
@@ -1297,8 +1329,22 @@ function open_app(app_id)
   if not app then
     return
   end
-  local preferred_width = app_id == "finder" and 58 or app_id == "paint" and 54 or app_id == "blend" and 64 or app_id == "launcher" and 44 or 46
-  local preferred_height = app_id == "finder" and 17 or app_id == "paint" and 18 or app_id == "blend" and 20 or app_id == "launcher" and 16 or 15
+  local preferred_width = app_id == "finder" and 70
+    or app_id == "paint" and 70
+    or app_id == "blend" and 72
+    or app_id == "launcher" and 66
+    or app_id == "docs" and 70
+    or app_id == "settings" and 70
+    or app_id == "store" and 68
+    or 64
+  local preferred_height = app_id == "finder" and 34
+    or app_id == "paint" and 35
+    or app_id == "blend" and 36
+    or app_id == "launcher" and 32
+    or app_id == "docs" and 36
+    or app_id == "settings" and 34
+    or app_id == "store" and 34
+    or 30
   create_window(app_id, app.name, preferred_width, preferred_height)
 end
 
@@ -1398,11 +1444,7 @@ local function draw_system_menu()
   if not state.system_menu_open then
     return
   end
-  local screen_width, screen_height = screen_size()
-  local left = 5
-  local top = 1
-  local width = math.max(24, screen_width - left)
-  local height = math.max(10, screen_height - top - 2)
+  local left, top, width, height = shell_usable_rect()
   fill(left, top, width, height, colors.black)
   fill(left + 1, top + 1, width - 2, 3, THEME.field)
   write_at(left + 2, top + 1, "Activities", colors.orange, THEME.field)
@@ -1466,7 +1508,7 @@ local function draw_dock()
   local screen_width, screen_height = screen_size()
   local pixel_width = state.external.pixel_width or (screen_width * state.external.cell_width)
   local pixel_height = state.external.pixel_height or (screen_height * state.external.cell_height)
-  local bottom_height = math.max(20, math.floor(pixel_height * 0.11))
+  local bottom_height = math.max(DOCK_BOTTOM_PIXELS, math.floor(pixel_height * 0.10))
   local bottom_top = math.max(1, pixel_height - bottom_height + 1)
 
   if state.headless then
@@ -1479,50 +1521,53 @@ local function draw_dock()
     }
     for index, item in ipairs(quick) do
       local app = APPS[item.app]
-      local icon_top = 4 + (index - 1) * 23
-      pixel_round(3, icon_top, 26, 20, 3, item.color)
+      local icon_top = 8 + (index - 1) * (DOCK_BUTTON_PIXELS + DOCK_GAP_PIXELS)
+      pixel_fill(5, icon_top, DOCK_BUTTON_PIXELS, DOCK_BUTTON_PIXELS, item.color)
       if app then
-        pixel_icon(4, icon_top + 1, 24, 18, app.icon_asset, app.icon, nil, colors.white)
+        pixel_icon(5 + math.floor((DOCK_BUTTON_PIXELS - DOCK_ICON_PIXELS) / 2), icon_top + math.floor((DOCK_BUTTON_PIXELS - DOCK_ICON_PIXELS) / 2), DOCK_ICON_PIXELS, DOCK_ICON_PIXELS, app.icon_asset, app.icon, nil, colors.white)
       end
       local hit_top = math.max(1, math.floor((icon_top - 1) / state.external.cell_height) + 1)
-      add_hit(item.action, 1, hit_top, 5, 3, item.app)
+      add_hit(item.action, 1, hit_top, shell_left_cell() - 1, math.max(3, ceil_div(DOCK_BUTTON_PIXELS, state.external.cell_height)), item.app)
     end
 
     pixel_fill(1, bottom_top, pixel_width, bottom_height, colors.black)
-    local icon_left = 4
-    local icon_top = bottom_top + math.max(2, math.floor((bottom_height - 18) / 2))
+    local icon_left = 8
+    local icon_top = bottom_top + math.floor((bottom_height - DOCK_BUTTON_PIXELS) / 2)
     for _, app_id in ipairs(PINNED) do
       local app = APPS[app_id]
-      if icon_left + 24 >= pixel_width - 70 then
+      if icon_left + DOCK_BUTTON_PIXELS >= pixel_width - 96 then
         break
       end
-      pixel_round(icon_left, icon_top, 24, 18, 3, app and app.color or colors.red)
+      pixel_fill(icon_left, icon_top, DOCK_BUTTON_PIXELS, DOCK_BUTTON_PIXELS, app and app.color or colors.red)
       if app then
-        pixel_icon(icon_left, icon_top, 24, 18, app.icon_asset, app.icon, nil, colors.white)
+        pixel_icon(icon_left + math.floor((DOCK_BUTTON_PIXELS - DOCK_ICON_PIXELS) / 2), icon_top + math.floor((DOCK_BUTTON_PIXELS - DOCK_ICON_PIXELS) / 2), DOCK_ICON_PIXELS, DOCK_ICON_PIXELS, app.icon_asset, app.icon, nil, colors.white)
+      end
+      if is_open_dock_app(app_id) then
+        pixel_fill(icon_left, icon_top + DOCK_BUTTON_PIXELS - 3, DOCK_BUTTON_PIXELS, 3, colors.white)
       end
       local hit_left = math.max(1, math.floor((icon_left - 1) / state.external.cell_width) + 1)
       local hit_top = math.max(1, math.floor((icon_top - 1) / state.external.cell_height) + 1)
-      add_hit("dock_pinned", hit_left, hit_top, 4, 2, app_id)
-      icon_left = icon_left + 28
+      add_hit("dock_pinned", hit_left, hit_top, ceil_div(DOCK_BUTTON_PIXELS, state.external.cell_width), ceil_div(DOCK_BUTTON_PIXELS, state.external.cell_height), app_id)
+      icon_left = icon_left + DOCK_BUTTON_PIXELS + 8
     end
     local open_left = icon_left + 4
     for _, app_id in ipairs(state.open_dock_order) do
       local app = APPS[app_id]
-      if not is_pinned(app_id) and open_left + 24 < pixel_width - 70 then
-        pixel_round(open_left, icon_top, 24, 18, 3, app and app.color or colors.orange)
+      if not is_pinned(app_id) and open_left + DOCK_BUTTON_PIXELS < pixel_width - 96 then
+        pixel_fill(open_left, icon_top, DOCK_BUTTON_PIXELS, DOCK_BUTTON_PIXELS, app and app.color or colors.orange)
         if app then
-          pixel_icon(open_left, icon_top, 24, 18, app.icon_asset, app.icon, nil, colors.white)
+          pixel_icon(open_left + math.floor((DOCK_BUTTON_PIXELS - DOCK_ICON_PIXELS) / 2), icon_top + math.floor((DOCK_BUTTON_PIXELS - DOCK_ICON_PIXELS) / 2), DOCK_ICON_PIXELS, DOCK_ICON_PIXELS, app.icon_asset, app.icon, nil, colors.white)
         end
         local hit_left = math.max(1, math.floor((open_left - 1) / state.external.cell_width) + 1)
         local hit_top = math.max(1, math.floor((icon_top - 1) / state.external.cell_height) + 1)
-        add_hit("dock_open", hit_left, hit_top, 4, 2, app_id)
-        open_left = open_left + 28
+        add_hit("dock_open", hit_left, hit_top, ceil_div(DOCK_BUTTON_PIXELS, state.external.cell_width), ceil_div(DOCK_BUTTON_PIXELS, state.external.cell_height), app_id)
+        open_left = open_left + DOCK_BUTTON_PIXELS + 8
       end
     end
     add_hit("dock_drop_end", math.max(1, math.floor((open_left - 1) / state.external.cell_width) + 1), screen_height - 1, 3, 2, nil)
     local status = current_time_text()
     local status_width = tiny_text_width(status, 1)
-    pixel_tiny_text(math.max(1, pixel_width - status_width - 5), bottom_top + 7, status, colors.white, 1)
+    pixel_tiny_text(math.max(1, pixel_width - status_width - 8), bottom_top + math.floor((bottom_height - 5) / 2), status, colors.white, 1)
   else
     local bottom_row = math.max(1, screen_height - 1)
     fill(1, bottom_row, screen_width, 2, colors.black)
@@ -1887,9 +1932,11 @@ local function save_painting()
       name = name .. ".txt"
     end
     local lines = {}
-    for row = 1, 14 do
+    local save_width = tonumber(state.paint_canvas_width) or 42
+    local save_height = tonumber(state.paint_canvas_height) or 14
+    for row = 1, save_height do
       local parts = {}
-      for col = 1, 42 do
+      for col = 1, save_width do
         table.insert(parts, tostring(paint_cell(col, row)))
       end
       table.insert(lines, table.concat(parts, ","))
@@ -1919,8 +1966,10 @@ local function draw_paint(window_state)
     add_hit("paint_color", cell_left, cell_top, 2, 1, color)
   end
 
-  local canvas_width = math.min(42, width - 4)
-  local canvas_height = math.min(14, height - 7)
+  local canvas_width = math.min(60, width - 4)
+  local canvas_height = math.min(24, height - 7)
+  state.paint_canvas_width = canvas_width
+  state.paint_canvas_height = canvas_height
   local canvas_left = left + math.max(2, math.floor((width - canvas_width) / 2))
   local canvas_top = top + 6
   fill(canvas_left + 1, canvas_top + 1, canvas_width, canvas_height, colors.gray)
@@ -1956,22 +2005,22 @@ local function draw_store(window_state)
     end
   end
 
-  write_at(left + 1, top + 4, "Featured", colors.white, colors.black)
+  write_at(left + 1, top + 4, "Catalog", colors.white, colors.black)
   local row_top = top + 5
   for _, store_app in ipairs(filtered) do
-    if row_top + 3 >= top + height then
+    if row_top + 4 >= top + height then
       break
     end
     local app = APPS[store_app.id] or APPS.store
     local row_background = store_app.popular and THEME.surface or THEME.field
-    fill(left + 1, row_top, width - 2, 3, row_background)
-    draw_app_icon(left + 2, row_top + 1, app, 4, 2, nil, nil)
-    write_at(left + 7, row_top, trim(store_app.name, width - 21), colors.white, row_background)
-    write_at(left + 7, row_top + 1, trim(store_app.description, width - 21), colors.lightGray, row_background)
-    write_at(left + 7, row_top + 2, string.upper(store_app.trust), trust_color(store_app), row_background)
+    fill(left + 1, row_top, width - 2, 4, row_background)
+    draw_app_icon(left + 2, row_top + 1, app, 4, 3, nil, nil)
+    write_at(left + 8, row_top, trim(store_app.name, width - 22), colors.white, row_background)
+    write_at(left + 8, row_top + 1, trim(store_app.description, width - 22), colors.lightGray, row_background)
+    write_at(left + 8, row_top + 2, string.upper(store_app.trust), trust_color(store_app), row_background)
     local installed = store_app.trust == "built-in" or store_app.id == "luma" and luma_installed()
     draw_button(installed and "store_open" or "store_install", left + width - 11, row_top + 1, installed and "Open" or "Install", store_app, installed and colors.purple or THEME.button)
-    row_top = row_top + 4
+    row_top = row_top + 5
   end
 end
 
@@ -2078,8 +2127,9 @@ local function draw_settings(window_state)
     write_at(content_left, content_top + 2, "General", colors.white, THEME.field)
     write_at(content_left, content_top + 4, DISPLAY_VERSION, colors.lightGray, THEME.field)
     write_at(content_left, content_top + 5, "Screen " .. tostring(state.external.pixel_width) .. "x" .. tostring(state.external.pixel_height), colors.lightGray, THEME.field)
-    write_at(content_left, content_top + 6, "Wallpaper " .. (state.wallpaper and "image" or tostring(state.wallpaper_error or "waiting")), colors.lightGray, THEME.field)
-    draw_button("settings_gpu", content_left, content_top + 8, "Rescan display", nil, THEME.button)
+    write_at(content_left, content_top + 6, "Target 3x6 " .. tostring(TARGET_3X6_WIDTH) .. "x" .. tostring(TARGET_3X6_HEIGHT), colors.lightGray, THEME.field)
+    write_at(content_left, content_top + 7, "Wallpaper " .. (state.wallpaper and "image" or tostring(state.wallpaper_error or "waiting")), colors.lightGray, THEME.field)
+    draw_button("settings_gpu", content_left, content_top + 9, "Rescan display", nil, THEME.button)
   elseif state.settings_tab == "theme" then
     write_at(content_left, content_top + 2, "Theme", colors.white, THEME.field)
     write_at(content_left, content_top + 4, "Current: " .. tostring(state.theme_id or "linux"), colors.lightGray, THEME.field)
@@ -2146,8 +2196,8 @@ local function draw_launcher(window_state)
   table.sort(apps, function(left_app, right_app)
     return left_app.app.name < right_app.app.name
   end)
-  local card_width = 13
-  local card_height = 5
+  local card_width = 14
+  local card_height = 7
   local columns = math.max(1, math.floor((width - 2) / (card_width + 1)))
   for index, item in ipairs(apps) do
     local zero = index - 1
@@ -2159,8 +2209,9 @@ local function draw_launcher(window_state)
       break
     end
     fill(card_left, card_top, card_width, card_height, THEME.surface)
-    draw_app_icon(card_left + 4, card_top + 1, item.app, 4, 2, nil, nil)
-    write_at(card_left + 1, card_top + 3, trim(item.app.name, card_width - 2), colors.white, THEME.surface)
+    draw_app_icon(card_left + 5, card_top + 1, item.app, 4, 3, nil, nil)
+    write_at(card_left + 1, card_top + 4, trim(item.app.name, card_width - 2), colors.white, THEME.surface)
+    write_at(card_left + 1, card_top + 5, trim(item.id, card_width - 2), colors.lightGray, THEME.surface)
     add_hit("launcher_open", card_left, card_top, card_width, card_height, item.id)
   end
 end
@@ -3359,9 +3410,10 @@ function run_loop()
       local window_state = state.windows[state.dragging_window.id]
       if window_state then
         local screen_width, screen_height = screen_size()
-        local max_left = math.max(5, screen_width - window_state.width + 1)
-        local max_top = math.max(1, screen_height - window_state.height - 2)
-        window_state.left = math.max(5, math.min(max_left, state.dragging_window.start_left + second - state.dragging_window.mouse_left))
+        local shell_left = shell_left_cell()
+        local max_left = math.max(shell_left, screen_width - window_state.width + 1)
+        local max_top = math.max(1, screen_height - shell_bottom_cells() - window_state.height + 1)
+        window_state.left = math.max(shell_left, math.min(max_left, state.dragging_window.start_left + second - state.dragging_window.mouse_left))
         window_state.top = math.max(1, math.min(max_top, state.dragging_window.start_top + third - state.dragging_window.mouse_top))
       end
     elseif event == "mouse_up" then
