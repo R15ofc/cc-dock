@@ -33,6 +33,13 @@ local OPTIONAL_ASSETS = {
   { source = "icons/terminal.png", target = "/dock/assets/icons/terminal.png", binary = true },
 }
 
+local LEGACY_ASSETS = {
+  "/dock/assets/wallpaper-320x216.png",
+  "/dock/assets/wallpaper-480x360.png",
+  "/dock/assets/wallpaper-800x480.png",
+  "/dock/assets/wallpaper.png",
+}
+
 local START_MARK = "-- DockOS startup hook: begin"
 local END_MARK = "-- DockOS startup hook: end"
 
@@ -234,6 +241,12 @@ local function install_files(source_url, asset_url)
     end
     ensure_parent(file.target)
     fs.move(temp_path(file.target), file.target)
+  end
+
+  for _, path in ipairs(LEGACY_ASSETS) do
+    if fs.exists(path) then
+      fs.delete(path)
+    end
   end
 
   for _, file in ipairs(OPTIONAL_ASSETS) do
