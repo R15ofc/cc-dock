@@ -1,9 +1,10 @@
-local VERSION = "0.9.1"
+local VERSION = "1.0.0"
 local LUMA_INSTALLER_URL = "https://raw.githubusercontent.com/R15ofc/cc-luma/main/luma-installer.lua"
 local LUMA_SOURCE_URL = "https://raw.githubusercontent.com/R15ofc/cc-luma/main/cc"
 local DOCS_DIR = "/dock/documents"
 local PAINT_DIR = "/dock/paintings"
 local ASSETS_DIR = "/dock/assets"
+local CONFIG_PATH = "/dock/config.txt"
 
 local args = { ... }
 local unpacker = table.unpack or unpack
@@ -20,7 +21,7 @@ local THEME = {
   dock = colors.black,
   dock_shadow = colors.black,
   window = colors.black,
-  window_title = colors.white,
+  window_title = colors.blue,
   window_inactive = colors.gray,
   surface = colors.gray,
   field = colors.black,
@@ -33,6 +34,107 @@ local THEME = {
   warning = colors.orange,
   success = colors.lime,
 }
+
+local THEME_PRESETS = {
+  win10 = {
+    id = "win10",
+    name = "Win10",
+    color = colors.blue,
+    values = {
+      desktop = colors.black,
+      menubar = colors.black,
+      dock = colors.black,
+      dock_shadow = colors.black,
+      window = colors.black,
+      window_title = colors.blue,
+      window_inactive = colors.gray,
+      surface = colors.gray,
+      field = colors.black,
+      text = colors.white,
+      muted = colors.lightGray,
+      accent = colors.lightBlue,
+      selected = colors.blue,
+      button = colors.blue,
+      danger = colors.red,
+      warning = colors.orange,
+      success = colors.lime,
+    },
+  },
+  dark = {
+    id = "dark",
+    name = "Dark",
+    color = colors.gray,
+    values = {
+      desktop = colors.black,
+      menubar = colors.black,
+      dock = colors.black,
+      dock_shadow = colors.black,
+      window = colors.black,
+      window_title = colors.gray,
+      window_inactive = colors.gray,
+      surface = colors.gray,
+      field = colors.black,
+      text = colors.white,
+      muted = colors.lightGray,
+      accent = colors.cyan,
+      selected = colors.gray,
+      button = colors.gray,
+      danger = colors.red,
+      warning = colors.orange,
+      success = colors.lime,
+    },
+  },
+  forest = {
+    id = "forest",
+    name = "Forest",
+    color = colors.green,
+    values = {
+      desktop = colors.black,
+      menubar = colors.black,
+      dock = colors.black,
+      dock_shadow = colors.black,
+      window = colors.black,
+      window_title = colors.green,
+      window_inactive = colors.gray,
+      surface = colors.gray,
+      field = colors.black,
+      text = colors.white,
+      muted = colors.lightGray,
+      accent = colors.lime,
+      selected = colors.green,
+      button = colors.green,
+      danger = colors.red,
+      warning = colors.orange,
+      success = colors.lime,
+    },
+  },
+  purple = {
+    id = "purple",
+    name = "Purple",
+    color = colors.purple,
+    values = {
+      desktop = colors.black,
+      menubar = colors.black,
+      dock = colors.black,
+      dock_shadow = colors.black,
+      window = colors.black,
+      window_title = colors.purple,
+      window_inactive = colors.gray,
+      surface = colors.gray,
+      field = colors.black,
+      text = colors.white,
+      muted = colors.lightGray,
+      accent = colors.pink,
+      selected = colors.purple,
+      button = colors.purple,
+      danger = colors.red,
+      warning = colors.orange,
+      success = colors.lime,
+    },
+  },
+}
+
+local THEME_ORDER = { "win10", "dark", "forest", "purple" }
 
 local APPS = {
   launcher = { id = "launcher", name = "Launchpad", icon = "AP", color = colors.lightGray },
@@ -85,6 +187,7 @@ local state = {
   terminal_input = "",
   terminal_cwd = "/",
   boot_splash_done = false,
+  theme_id = "win10",
   wallpaper = nil,
   wallpaper_key = nil,
   wallpaper_error = nil,
@@ -177,6 +280,13 @@ end
 local function pad(text, width)
   text = trim(text, width)
   return text .. string.rep(" ", math.max(0, width - #text))
+end
+
+local function foreground_for_background(background)
+  if background == colors.white or background == colors.lightGray or background == colors.yellow or background == colors.lime or background == colors.cyan or background == colors.lightBlue then
+    return colors.black
+  end
+  return colors.white
 end
 
 local function queue_frame_op(op)
@@ -309,6 +419,33 @@ local function read_file(path)
   local data = handle.readAll()
   handle.close()
   return data or ""
+end
+
+local function apply_theme(theme_id)
+  local preset = THEME_PRESETS[theme_id] or THEME_PRESETS.win10
+  for key, value in pairs(preset.values) do
+    THEME[key] = value
+  end
+  state.theme_id = preset.id
+end
+
+local function load_config()
+  apply_theme(state.theme_id or "win10")
+  local config = read_file(CONFIG_PATH)
+  if not config then
+    return
+  end
+  for line in config:gmatch("[^\r\n]+") do
+    local key, value = line:match("^%s*([%w_%-]+)%s*=%s*(.-)%s*$")
+    if key == "theme" then
+      apply_theme(value)
+    end
+  end
+end
+
+local function save_config()
+  local config = "theme=" .. tostring(state.theme_id or "win10") .. "\n"
+  return write_file(CONFIG_PATH, config)
 end
 
 local function write_buffer_chunk(buffer, chunk)
@@ -992,62 +1129,59 @@ end
 
 local function draw_button(action, left, top, label, payload, background)
   local width = #label + 2
-  fill(left, top, width, 1, background or THEME.button)
-  write_at(left + 1, top, label, colors.white, background or THEME.button)
+  local button_background = background or THEME.button
+  fill(left, top, width, 1, button_background)
+  write_at(left + 1, top, label, foreground_for_background(button_background), button_background)
   add_hit(action, left, top, width, 1, payload)
   return width
 end
 
 local function draw_menu_bar()
-  local screen_width = screen_size()
-  fill(1, 1, screen_width, 1, THEME.menubar)
-  write_at(2, 1, "DockOS", colors.white, THEME.menubar)
-  add_hit("system_menu_toggle", 1, 1, 8, 1, nil)
-  local active_title = "Desktop"
-  if state.active_window and state.windows[state.active_window] then
-    active_title = state.windows[state.active_window].title
-  end
-  write_at(10, 1, trim(active_title, 20), colors.white, THEME.menubar)
-  local clock = textutils and textutils.formatTime and textutils.formatTime(os.time(), true) or ""
-  if clock ~= "" then
-    write_at(screen_width - #clock, 1, clock, colors.lightGray, THEME.menubar)
-  end
 end
 
 local function draw_system_menu()
   if not state.system_menu_open then
     return
   end
-  local left = 2
-  local top = 2
-  local width = 24
-  local height = 10
-  fill(left + 1, top + 1, width, height, colors.black)
+  local screen_width, screen_height = screen_size()
+  local left = 1
+  local width = math.min(32, screen_width)
+  local height = math.min(13, math.max(8, screen_height - 3))
+  local taskbar_top = math.max(1, screen_height - 2)
+  local top = math.max(1, taskbar_top - height)
+  fill(left + 1, top + 1, math.max(1, width - 1), height, colors.black)
   fill(left, top, width, height, THEME.surface)
-  write_at(left + 1, top, "DockOS " .. VERSION, colors.cyan, THEME.surface)
-  draw_button("system_open", left + 1, top + 2, "Launchpad", "launcher", THEME.button)
-  draw_button("system_open", left + 1, top + 3, "Files", "finder", colors.gray)
-  draw_button("system_open", left + 1, top + 4, "Terminal", "terminal", colors.gray)
-  draw_button("system_open", left + 1, top + 5, "Settings", "settings", colors.gray)
-  draw_button("system_about", left + 1, top + 7, "About", nil, colors.purple)
-  draw_button("system_reboot", left + 10, top + 7, "Reboot", nil, colors.orange)
-  draw_button("system_shutdown", left + 1, top + 8, "Shutdown", nil, THEME.danger)
+  fill(left, top, width, 2, THEME.window_title)
+  write_at(left + 1, top, "DockOS", colors.white, THEME.window_title)
+  write_at(left + 1, top + 1, "Release " .. VERSION, colors.lightGray, THEME.window_title)
+  draw_button("system_open", left + 1, top + 3, "All apps", "launcher", THEME.button)
+  draw_button("system_open", left + 1, top + 4, "File Explorer", "finder", colors.gray)
+  draw_button("system_open", left + 1, top + 5, "Store", "store", colors.gray)
+  draw_button("system_open", left + 1, top + 6, "Terminal", "terminal", colors.gray)
+  draw_button("system_open", left + 1, top + 7, "Settings", "settings", colors.gray)
+  draw_button("system_about", left + 1, top + height - 3, "About", nil, colors.purple)
+  draw_button("system_reboot", left + 10, top + height - 3, "Reboot", nil, colors.orange)
+  draw_button("system_shutdown", left + 1, top + height - 2, "Power off", nil, THEME.danger)
 end
 
 local function draw_desktop()
   local desktop_icons = {
+    { app = "finder", name = "This PC", icon = "PC" },
     { app = "launcher", name = "Apps", icon = "AP" },
-    { app = "finder", name = "Computer", icon = "HD" },
     { app = "store", name = "Store", icon = "ST" },
     { app = "docs", name = "Docs", icon = "DC" },
     { app = "paint", name = "Paint", icon = "PT" },
+    { action = "system_about", name = "About", icon = "i" },
   }
   local left = 3
-  local top = 3
+  local top = 2
   for _, item in ipairs(desktop_icons) do
-    write_at(left + 3, top, item.icon, colors.white, nil)
-    write_at(left, top + 1, trim(item.name, 10), colors.white, nil)
-    add_hit("desktop_app", left, top, 10, 3, item.app)
+    local app = item.app and APPS[item.app] or nil
+    local icon_color = app and app.color or THEME.accent
+    fill(left + 2, top, 4, 2, icon_color)
+    write_at(left + 3, top, trim(item.icon, 2), colors.white, icon_color)
+    write_at(left, top + 2, trim(item.name, 12), colors.white, nil)
+    add_hit(item.action or "desktop_app", left, top, 12, 3, item.app)
     top = top + 4
   end
 end
@@ -1056,53 +1190,91 @@ local function dock_width()
   return (#PINNED * 5) + 3 + (#state.open_dock_order * 5)
 end
 
+local function is_pinned(app_id)
+  for _, pinned_app_id in ipairs(PINNED) do
+    if pinned_app_id == app_id then
+      return true
+    end
+  end
+  return false
+end
+
 local function draw_dock_icon(left, top, app_id, action)
   local app = APPS[app_id]
   if not app then
     return
   end
-  fill(left, top, 4, 2, app.color)
-  write_at(left + 1, top, app.icon, colors.white, app.color)
+  local icon_background = is_open_dock_app(app_id) and THEME.selected or THEME.dock
+  fill(left, top, 4, 2, icon_background)
+  write_at(left + 1, top, app.icon, colors.white, icon_background)
   if is_open_dock_app(app_id) then
-    write_at(left + 1, top + 1, "  ", colors.white, colors.white)
+    write_at(left + 1, top + 1, "  ", colors.white, app.color)
   end
   add_hit(action, left, top, 4, 2, app_id)
 end
 
 local function draw_dock()
   local screen_width, screen_height = screen_size()
-  local dock_top = screen_height - 2
-  local total_width = math.min(screen_width - 2, dock_width())
-  local left = math.max(2, math.floor((screen_width - total_width) / 2) + 1)
-  fill(left - 1, dock_top - 1, total_width + 2, 3, THEME.dock_shadow)
-  fill(left, dock_top, total_width, 3, THEME.dock)
-  local cursor_left = left + 1
+  local dock_top = math.max(1, screen_height - 2)
+  fill(1, dock_top, screen_width, 3, THEME.dock)
+  local start_background = state.system_menu_open and THEME.selected or THEME.window_title
+  fill(1, dock_top, 8, 3, start_background)
+  write_at(2, dock_top + 1, "Start", foreground_for_background(start_background), start_background)
+  add_hit("system_menu_toggle", 1, dock_top, 8, 3, nil)
+
+  local search_left = 10
+  local search_width = math.min(24, math.max(10, math.floor(screen_width / 4)))
+  if search_left + search_width + 10 < screen_width then
+    fill(search_left, dock_top, search_width, 3, THEME.field)
+    write_at(search_left + 1, dock_top + 1, trim("Search DockOS", search_width - 2), colors.lightGray, THEME.field)
+    add_hit("system_open", search_left, dock_top, search_width, 3, "launcher")
+  else
+    search_width = 0
+  end
+
+  local cursor_left = search_left + search_width + 2
   for _, app_id in ipairs(PINNED) do
-    draw_dock_icon(cursor_left, dock_top, app_id, "dock_pinned")
+    if cursor_left + 5 >= screen_width - 14 then
+      break
+    end
+    draw_dock_icon(cursor_left, dock_top + 1, app_id, "dock_pinned")
     cursor_left = cursor_left + 5
   end
-  write_at(cursor_left, dock_top, "|", colors.lightGray, THEME.dock)
-  add_hit("dock_drop_end", cursor_left, dock_top, 2, 2, nil)
-  cursor_left = cursor_left + 3
+  write_at(cursor_left, dock_top + 1, "|", colors.lightGray, THEME.dock)
+  add_hit("dock_drop_end", cursor_left, dock_top, 2, 3, nil)
+  cursor_left = cursor_left + 2
   for _, app_id in ipairs(state.open_dock_order) do
-    draw_dock_icon(cursor_left, dock_top, app_id, "dock_open")
-    cursor_left = cursor_left + 5
+    if not is_pinned(app_id) and cursor_left + 5 < screen_width - 14 then
+      draw_dock_icon(cursor_left, dock_top + 1, app_id, "dock_open")
+      cursor_left = cursor_left + 5
+    end
+  end
+
+  local clock = textutils and textutils.formatTime and textutils.formatTime(os.time(), true) or ""
+  local tray = "NET VOL " .. clock
+  if screen_width > #tray + 2 then
+    write_at(screen_width - #tray, dock_top + 1, tray, colors.lightGray, THEME.dock)
+    add_hit("system_open", screen_width - #tray, dock_top, #tray + 1, 3, "settings")
   end
 end
 
 local function draw_window_frame(window_state)
   local active = state.active_window == window_state.id
-  local title_color = active and THEME.window_title or THEME.window_inactive
+  local app = window_state.app and APPS[window_state.app] or nil
+  local title_color = active and (app and app.color or THEME.window_title) or THEME.window_inactive
+  local title_foreground = active and foreground_for_background(title_color) or colors.lightGray
   fill(window_state.left + 1, window_state.top + 1, window_state.width, window_state.height, colors.black)
   fill(window_state.left, window_state.top, window_state.width, window_state.height, THEME.window)
   fill(window_state.left, window_state.top, window_state.width, 1, title_color)
   add_hit("window_focus", window_state.left, window_state.top, window_state.width, window_state.height, window_state.id)
-  write_at(window_state.left + 1, window_state.top, "x", colors.red, title_color)
-  write_at(window_state.left + 3, window_state.top, "[]", colors.green, title_color)
-  write_at(window_state.left + 7, window_state.top, trim(window_state.title, window_state.width - 8), colors.black, title_color)
-  add_hit("window_close", window_state.left + 1, window_state.top, 1, 1, window_state.id)
-  add_hit("window_fullscreen", window_state.left + 3, window_state.top, 2, 1, window_state.id)
-  add_hit("window_drag", window_state.left + 6, window_state.top, window_state.width - 6, 1, window_state.id)
+  local close_left = window_state.left + window_state.width - 2
+  local fullscreen_left = math.max(window_state.left + 1, close_left - 3)
+  write_at(window_state.left + 1, window_state.top, trim(window_state.title, math.max(1, window_state.width - 8)), title_foreground, title_color)
+  write_at(fullscreen_left, window_state.top, "[]", colors.white, title_color)
+  write_at(close_left, window_state.top, "x", colors.white, THEME.danger)
+  add_hit("window_close", close_left, window_state.top, 1, 1, window_state.id)
+  add_hit("window_fullscreen", fullscreen_left, window_state.top, 2, 1, window_state.id)
+  add_hit("window_drag", window_state.left, window_state.top, math.max(1, window_state.width - 6), 1, window_state.id)
 end
 
 local function content_rect(window_state)
@@ -1564,8 +1736,16 @@ local function draw_settings(window_state)
   write_at(left + 1, top + 5, "DockOS " .. VERSION, colors.lightGray, THEME.window)
   write_at(left + 1, top + 6, "Screen " .. tostring(state.external.pixel_width) .. "x" .. tostring(state.external.pixel_height), colors.lightGray, THEME.window)
   write_at(left + 1, top + 7, "Wallpaper " .. (state.wallpaper and "image" or tostring(state.wallpaper_error or "waiting")), colors.lightGray, THEME.window)
-  write_at(left + 1, top + 9, "Peripherals", colors.white, THEME.window)
-  local row_top = top + 11
+  write_at(left + 1, top + 9, "Theme: " .. tostring(state.theme_id or "win10"), colors.white, THEME.window)
+  local theme_left = left + 1
+  for _, theme_id in ipairs(THEME_ORDER) do
+    local preset = THEME_PRESETS[theme_id]
+    if preset then
+      theme_left = theme_left + draw_button("theme_set", theme_left, top + 10, preset.name, theme_id, preset.color) + 1
+    end
+  end
+  write_at(left + 1, top + 12, "Peripherals", colors.white, THEME.window)
+  local row_top = top + 14
   for _, row in ipairs(peripheral_rows()) do
     if row_top >= top + height then
       break
@@ -2338,6 +2518,11 @@ local function handle_action(action, payload, mouse_left, mouse_top)
     speaker_test()
   elseif action == "settings_printer" then
     printer_test()
+  elseif action == "theme_set" then
+    apply_theme(payload)
+    local ok, err = save_config()
+    state.settings_message = ok and ("Theme saved: " .. tostring(state.theme_id)) or ("Theme save failed: " .. tostring(err))
+    state.toast = "Theme " .. tostring(state.theme_id)
   end
 end
 
@@ -2427,6 +2612,7 @@ end
 
 local function run_loop()
   state.headless = true
+  load_config()
   blank_terminal()
   scan_external_peripherals()
   show_boot_splash()

@@ -86,11 +86,11 @@ local function join_url(base_url, path)
   return tostring(base_url):gsub("/+$", "") .. "/" .. tostring(path):gsub("^/+", "")
 end
 
-local function download(url)
+local function download(url, binary)
   if not http then
     return nil, "HTTP API is disabled"
   end
-  local handle, err = http.get(url, { ["Accept"] = "*/*" })
+  local handle, err = http.get(url, { ["Accept"] = "*/*" }, binary)
   if not handle then
     return nil, err or "request failed"
   end
@@ -146,7 +146,7 @@ local function install_files(source_url, asset_url)
 
   for index, file in ipairs(FILES) do
     print("DockOS [" .. tostring(index) .. "/" .. tostring(#FILES) .. "] " .. file.source)
-    local body, err = download(join_url(source_url, file.source))
+    local body, err = download(join_url(source_url, file.source), file.binary)
     if not body then
       fs.delete(TEMP_DIR)
       return nil, err
@@ -168,7 +168,7 @@ local function install_files(source_url, asset_url)
 
   for _, file in ipairs(OPTIONAL_ASSETS) do
     print("DockOS asset " .. file.source)
-    local body = download(join_url(asset_url, file.source))
+    local body = download(join_url(asset_url, file.source), file.binary)
     if body then
       local ok, write_err = write_file(temp_path(file.target), body, file.binary)
       if not ok then

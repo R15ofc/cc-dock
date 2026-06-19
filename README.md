@@ -30,29 +30,28 @@ Recommended screen size for the current UI is at least a `3x5` Tom bitmap monito
 
 ## UI
 
-- Mac-style desktop.
+- Windows-style desktop shell with a full-width bottom taskbar.
 - External-display first: no UI is drawn on the PC terminal.
+- Start menu opens from the taskbar and includes Apps, Files, Store, Terminal, Settings, About, reboot, and shutdown.
+- Search box on the taskbar opens the app launcher.
 - Real PNG wallpaper loading through Tom GPU `decodeImage`/`drawImage`.
+- Default DockOS Blue wallpaper assets are installed into `/dock/assets`.
 - Release boot splash.
 - High-resolution Tom GPU renderer with square opaque surfaces and strict Z-order.
-- System menu with About, reboot, shutdown, Files, Settings, Terminal.
-- Launchpad app for opening installed apps.
-- Bottom dock: pinned apps on the left, `|`, open apps on the right.
-- Multiple windows.
-- Drag windows by the title bar.
-- Fullscreen button on every Dock window.
+- Square app windows with colored title bars, close, fullscreen, focus, and drag.
+- Pinned taskbar apps plus open-app indicators.
 - Files app with create folder/file, rename, delete, preview, and open.
-- Settings app for peripherals: Tom GPU/monitor/keyboard status, speaker, printer.
+- Settings app for themes, peripherals, speaker, printer, reboot, and power.
 - Store includes built-in Documents, Paint, and Luma install.
 
 ## Apps
 
-- **Files** - Finder-style file manager.
+- **Files** - desktop file manager.
 - **Launchpad** - app launcher.
 - **Store** - install/open apps.
 - **Documents** - write documents and print with a connected printer.
 - **Paint** - simple pixel paint app.
-- **Settings** - connect/test displays, speakers, printers, DirectGPU.
+- **Settings** - themes, display rescan, speakers, printers, DirectGPU.
 - **Luma** - browser shell, installable from Store.
 - **Terminal** - DockOS shell with file/app/power commands.
 
