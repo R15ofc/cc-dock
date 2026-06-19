@@ -1,4 +1,4 @@
-local VERSION = "1.2.4"
+local VERSION = "1.2.5"
 local LUMA_INSTALLER_URL = "https://raw.githubusercontent.com/R15ofc/cc-luma/main/luma-installer.lua"
 local LUMA_SOURCE_URL = "https://raw.githubusercontent.com/R15ofc/cc-luma/main/cc"
 local DOCS_DIR = "/dock/documents"
@@ -13,6 +13,7 @@ local IMAGE_BUFFER_WRITE_CHUNK = 512
 local DEFAULT_TIMEZONE_OFFSET = 3
 local MIN_TIMEZONE_OFFSET = -12
 local MAX_TIMEZONE_OFFSET = 14
+local CUBE_TRIANGLES = "000010110;000110100;101111011;101011001;100110111;100111101;001011010;001010000;010011111;010111110;101001000;101000100"
 
 local DEFAULT_EXTERNAL_WIDTH = 80
 local DEFAULT_EXTERNAL_HEIGHT = 30
@@ -3447,6 +3448,55 @@ local function method_summary(name)
   return table.concat(methods, ",")
 end
 
+local function cube_vertex_value(triangle, offset)
+  return tonumber(triangle:sub(offset, offset)) or 0
+end
+
+local function draw_cube_triangles(gl)
+  gl.glBegin()
+  local index = 0
+  for triangle in CUBE_TRIANGLES:gmatch("[^;]+") do
+    index = index + 1
+    local side = math.floor((index - 1) / 2) % 3
+    if side == 0 then
+      gl.glColor(255, 80, 80)
+    elseif side == 1 then
+      gl.glColor(80, 220, 120)
+    else
+      gl.glColor(90, 160, 255)
+    end
+    gl.glVertex(cube_vertex_value(triangle, 1), cube_vertex_value(triangle, 2), cube_vertex_value(triangle, 3))
+    gl.glVertex(cube_vertex_value(triangle, 4), cube_vertex_value(triangle, 5), cube_vertex_value(triangle, 6))
+    gl.glVertex(cube_vertex_value(triangle, 7), cube_vertex_value(triangle, 8), cube_vertex_value(triangle, 9))
+  end
+  gl.glEnd()
+end
+
+local function render_3d_doctor_frame(gpu)
+  initialize_tom_gpu(true)
+  if gpu.fill then
+    gpu.fill(0)
+  end
+  local width = math.min(state.external.pixel_width - 2, 420)
+  local height = math.min(state.external.pixel_height - 2, 260)
+  local left = math.max(1, math.floor((state.external.pixel_width - width) / 2))
+  local top = math.max(1, math.floor((state.external.pixel_height - height) / 2))
+  local gl = gpu.createWindow3D(left, top, width, height)
+  gl.glFrustum(90, 0.1, 1000)
+  gl.glDirLight(0, 0, -1)
+  gl.clear()
+  gl.glDisable(0xDE1)
+  gl.glTranslate(0, 1, 3)
+  gl.glRotate(28, 0, 1, 0)
+  gl.glRotate(20, 0, 0, 1)
+  draw_cube_triangles(gl)
+  gl.render()
+  gl.sync()
+  if gpu.sync then
+    gpu.sync()
+  end
+end
+
 local function run_3d_doctor()
   state.headless = false
   reset_colors()
@@ -3461,52 +3511,7 @@ local function run_3d_doctor()
     print("3D window API is not available on this GPU.")
     return
   end
-  local ok, err = pcall(function()
-    initialize_tom_gpu(true)
-    if gpu.fill then
-      gpu.fill(0)
-    end
-    local width = math.min(state.external.pixel_width - 2, 420)
-    local height = math.min(state.external.pixel_height - 2, 260)
-    local left = math.max(1, math.floor((state.external.pixel_width - width) / 2))
-    local top = math.max(1, math.floor((state.external.pixel_height - height) / 2))
-    local gl = gpu.createWindow3D(left, top, width, height)
-    gl.glFrustum(90, 0.1, 1000)
-    gl.glDirLight(0, 0, -1)
-    gl.clear()
-    gl.glDisable(0xDE1)
-    gl.glTranslate(0, 1, 3)
-    gl.glRotate(28, 0, 1, 0)
-    gl.glRotate(20, 0, 0, 1)
-    local tris = {
-      { 0, 0, 0, 0, 1, 0, 1, 1, 0 }, { 0, 0, 0, 1, 1, 0, 1, 0, 0 },
-      { 1, 0, 1, 1, 1, 1, 0, 1, 1 }, { 1, 0, 1, 0, 1, 1, 0, 0, 1 },
-      { 1, 0, 0, 1, 1, 0, 1, 1, 1 }, { 1, 0, 0, 1, 1, 1, 1, 0, 1 },
-      { 0, 0, 1, 0, 1, 1, 0, 1, 0 }, { 0, 0, 1, 0, 1, 0, 0, 0, 0 },
-      { 0, 1, 0, 0, 1, 1, 1, 1, 1 }, { 0, 1, 0, 1, 1, 1, 1, 1, 0 },
-      { 1, 0, 1, 0, 0, 1, 0, 0, 0 }, { 1, 0, 1, 0, 0, 0, 1, 0, 0 },
-    }
-    gl.glBegin()
-    for index, tri in ipairs(tris) do
-      local side = math.floor((index - 1) / 2) % 3
-      if side == 0 then
-        gl.glColor(255, 80, 80)
-      elseif side == 1 then
-        gl.glColor(80, 220, 120)
-      else
-        gl.glColor(90, 160, 255)
-      end
-      gl.glVertex(tri[1], tri[2], tri[3])
-      gl.glVertex(tri[4], tri[5], tri[6])
-      gl.glVertex(tri[7], tri[8], tri[9])
-    end
-    gl.glEnd()
-    gl.render()
-    gl.sync()
-    if gpu.sync then
-      gpu.sync()
-    end
-  end)
+  local ok, err = pcall(render_3d_doctor_frame, gpu)
   if ok then
     print("3D cube frame rendered.")
   else
