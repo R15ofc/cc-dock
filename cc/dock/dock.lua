@@ -1,4 +1,4 @@
-local VERSION = "0.7.0"
+local VERSION = "0.8.0"
 local LUMA_INSTALLER_URL = "https://raw.githubusercontent.com/R15ofc/cc-luma/main/luma-installer.lua"
 local LUMA_SOURCE_URL = "https://raw.githubusercontent.com/R15ofc/cc-luma/main/cc"
 local DOCS_DIR = "/dock/documents"
@@ -8,8 +8,8 @@ local args = { ... }
 
 local DEFAULT_EXTERNAL_WIDTH = 80
 local DEFAULT_EXTERNAL_HEIGHT = 30
-local CELL_WIDTH = 8
-local CELL_HEIGHT = 12
+local CELL_WIDTH = 6
+local CELL_HEIGHT = 9
 local PERIPHERAL_SCAN_SECONDS = 1
 
 local THEME = {
@@ -82,6 +82,7 @@ local state = {
   terminal_lines = {},
   terminal_input = "",
   terminal_cwd = "/",
+  boot_splash_done = false,
   directgpu = nil,
   headless = true,
   frame_ops = {},
@@ -1643,6 +1644,25 @@ local function color_value(color)
   return rgb[1] * 65536 + rgb[2] * 256 + rgb[3]
 end
 
+local function rgb_value(red, green, blue)
+  red = math.max(0, math.min(255, math.floor(red or 0)))
+  green = math.max(0, math.min(255, math.floor(green or 0)))
+  blue = math.max(0, math.min(255, math.floor(blue or 0)))
+  return red * 65536 + green * 256 + blue
+end
+
+local function lerp(left, right, amount)
+  return left + (right - left) * amount
+end
+
+local function lerp_rgb(left, right, amount)
+  return rgb_value(
+    lerp(left[1], right[1], amount),
+    lerp(left[2], right[2], amount),
+    lerp(left[3], right[3], amount)
+  )
+end
+
 local function peripheral_type_text(name)
   if not peripheral or not peripheral.getType then
     return ""
@@ -1800,6 +1820,35 @@ local function tom_fill_rect(gpu, left, top, width, height, color)
   end
 end
 
+local function tom_fill_rgb(gpu, left, top, width, height, rgb)
+  left = math.max(1, math.floor(tonumber(left) or 1))
+  top = math.max(1, math.floor(tonumber(top) or 1))
+  width = math.floor(tonumber(width) or 0)
+  height = math.floor(tonumber(height) or 0)
+  width = math.min(width, math.max(0, state.external.pixel_width - left))
+  height = math.min(height, math.max(0, state.external.pixel_height - top))
+  if width <= 0 or height <= 0 or not gpu.filledRectangle then
+    return
+  end
+  gpu.filledRectangle(left, top, width, height, rgb)
+end
+
+local function tom_round_rect(gpu, left, top, width, height, radius, rgb)
+  radius = math.max(0, math.min(math.floor(radius or 0), math.floor(math.min(width, height) / 2)))
+  if radius <= 1 then
+    tom_fill_rgb(gpu, left, top, width, height, rgb)
+    return
+  end
+  tom_fill_rgb(gpu, left + radius, top, width - radius * 2, height, rgb)
+  tom_fill_rgb(gpu, left, top + radius, width, height - radius * 2, rgb)
+  for offset = 0, radius - 1 do
+    local inset = math.floor((radius - offset) * 0.55)
+    local row_width = width - inset * 2
+    tom_fill_rgb(gpu, left + inset, top + offset, row_width, 1, rgb)
+    tom_fill_rgb(gpu, left + inset, top + height - offset - 1, row_width, 1, rgb)
+  end
+end
+
 local function tom_draw_text(gpu, left, top, text, foreground, background)
   if not gpu.drawText then
     return
@@ -1815,6 +1864,120 @@ local function tom_draw_text(gpu, left, top, text, foreground, background)
   end
 end
 
+local function render_wallpaper(gpu)
+  local screen_width = state.external.pixel_width
+  local screen_height = state.external.pixel_height
+  local sky_height = math.floor(screen_height * 0.55)
+  local band_height = math.max(2, math.floor(screen_height / 42))
+
+  for y = 1, sky_height, band_height do
+    local amount = math.min(1, y / sky_height)
+    local color = lerp_rgb({ 116, 187, 216 }, { 226, 240, 238 }, amount)
+    tom_fill_rgb(gpu, 1, y, screen_width - 1, band_height + 1, color)
+  end
+
+  local cloud_color = rgb_value(238, 246, 245)
+  local cloud_shadow = rgb_value(181, 207, 211)
+  local function cloud(x, y, width, height)
+    tom_round_rect(gpu, x + math.floor(width * 0.12), y + math.floor(height * 0.38), math.floor(width * 0.7), math.floor(height * 0.34), math.floor(height * 0.2), cloud_shadow)
+    tom_round_rect(gpu, x, y + math.floor(height * 0.28), math.floor(width * 0.38), math.floor(height * 0.38), math.floor(height * 0.18), cloud_color)
+    tom_round_rect(gpu, x + math.floor(width * 0.24), y, math.floor(width * 0.34), math.floor(height * 0.54), math.floor(height * 0.25), cloud_color)
+    tom_round_rect(gpu, x + math.floor(width * 0.5), y + math.floor(height * 0.18), math.floor(width * 0.5), math.floor(height * 0.42), math.floor(height * 0.2), cloud_color)
+  end
+  cloud(math.floor(screen_width * 0.18), math.floor(screen_height * 0.12), math.floor(screen_width * 0.28), math.floor(screen_height * 0.11))
+  cloud(math.floor(screen_width * 0.62), math.floor(screen_height * 0.16), math.floor(screen_width * 0.3), math.floor(screen_height * 0.1))
+
+  local mountain_top = math.floor(screen_height * 0.34)
+  local mountain_bottom = math.floor(screen_height * 0.66)
+  for y = mountain_top, mountain_bottom, 2 do
+    local amount = (y - mountain_top) / math.max(1, mountain_bottom - mountain_top)
+    local left_edge = math.floor(screen_width * 0.02 + amount * screen_width * 0.18)
+    local right_edge = math.floor(screen_width * 0.98 - amount * screen_width * 0.14)
+    tom_fill_rgb(gpu, left_edge, y, right_edge - left_edge, 3, lerp_rgb({ 43, 91, 105 }, { 90, 128, 127 }, amount))
+  end
+  for y = mountain_top + math.floor(screen_height * 0.05), mountain_bottom, 2 do
+    local amount = (y - mountain_top) / math.max(1, mountain_bottom - mountain_top)
+    local left_edge = math.floor(screen_width * 0.22 + amount * screen_width * 0.08)
+    local right_edge = math.floor(screen_width * 0.82 - amount * screen_width * 0.05)
+    tom_fill_rgb(gpu, left_edge, y, right_edge - left_edge, 3, lerp_rgb({ 22, 67, 72 }, { 74, 109, 98 }, amount))
+  end
+
+  local hill_top = math.floor(screen_height * 0.52)
+  for y = hill_top, screen_height, 2 do
+    local amount = (y - hill_top) / math.max(1, screen_height - hill_top)
+    local inset = math.floor((1 - amount) * screen_width * 0.42)
+    local color = lerp_rgb({ 74, 148, 53 }, { 116, 168, 48 }, amount)
+    tom_fill_rgb(gpu, inset + 1, y, screen_width - inset * 2 - 1, 3, color)
+  end
+
+  for index = 0, 18 do
+    local x = math.floor(screen_width * (0.08 + index * 0.045))
+    local y = math.floor(screen_height * (0.56 + (index % 4) * 0.025))
+    tom_fill_rgb(gpu, x, y, 2, math.floor(screen_height * 0.08), rgb_value(28, 84, 48))
+    tom_round_rect(gpu, x - 3, y - 6, 8, 12, 4, rgb_value(27, 101, 56))
+  end
+
+  tom_fill_rgb(gpu, 1, screen_height - 22, screen_width - 1, 22, rgb_value(87, 135, 37))
+end
+
+local function render_glass_chrome(gpu)
+  local screen_width = state.external.pixel_width
+  local screen_height = state.external.pixel_height
+  local cell_width = state.external.cell_width
+  local cell_height = state.external.cell_height
+
+  tom_round_rect(gpu, 1, 1, screen_width - 1, cell_height + 5, 0, rgb_value(41, 54, 63))
+  tom_fill_rgb(gpu, 1, cell_height + 5, screen_width - 1, 1, rgb_value(255, 255, 255))
+
+  for _, window_id in ipairs(state.window_order) do
+    local window_state = state.windows[window_id]
+    if window_state then
+      local left = (window_state.left - 1) * cell_width + 1
+      local top = (window_state.top - 1) * cell_height + 1
+      local width = window_state.width * cell_width
+      local height = window_state.height * cell_height
+      local active = window_state.id == state.active_window
+      tom_round_rect(gpu, left + 5, top + 6, width, height, 10, rgb_value(14, 20, 25))
+      tom_round_rect(gpu, left, top, width, height, 10, active and rgb_value(35, 43, 52) or rgb_value(45, 49, 56))
+      tom_round_rect(gpu, left + 1, top + 1, width - 2, cell_height + 8, 9, active and rgb_value(218, 224, 231) or rgb_value(110, 119, 130))
+      tom_fill_rgb(gpu, left + 1, top + cell_height + 2, width - 2, 1, rgb_value(255, 255, 255))
+    end
+  end
+
+  local dock_top = state.virtual_height - 2
+  local total_width = math.min(state.virtual_width - 2, dock_width())
+  local left = math.max(2, math.floor((state.virtual_width - total_width) / 2) + 1)
+  local dock_left = (left - 2) * cell_width + 1
+  local dock_pixel_top = (dock_top - 2) * cell_height + 1
+  local dock_width_pixels = (total_width + 2) * cell_width
+  local dock_height_pixels = 4 * cell_height
+  tom_round_rect(gpu, dock_left + 5, dock_pixel_top + 6, dock_width_pixels, dock_height_pixels, 14, rgb_value(10, 17, 20))
+  tom_round_rect(gpu, dock_left, dock_pixel_top, dock_width_pixels, dock_height_pixels, 14, rgb_value(43, 55, 63))
+  tom_fill_rgb(gpu, dock_left + 12, dock_pixel_top + 4, math.max(1, dock_width_pixels - 24), 1, rgb_value(210, 230, 235))
+end
+
+local function should_skip_highres_op(op)
+  if op.kind ~= "fill" then
+    return false
+  end
+  if op.left == 1 and op.top == 1 and op.width >= state.virtual_width and op.height >= state.virtual_height then
+    return true
+  end
+  if op.top == 1 and op.height == 1 and op.background == THEME.menubar then
+    return true
+  end
+  if op.background == THEME.dock or op.background == THEME.dock_shadow then
+    return true
+  end
+  if (op.background == THEME.window_title or op.background == THEME.window_inactive) and op.height == 1 then
+    return true
+  end
+  if op.background == THEME.window and op.width >= 16 and op.height >= 5 then
+    return true
+  end
+  return false
+end
+
 local function render_tom_gpu()
   local gpu = state.external.gpu
   if not state.headless or not gpu then
@@ -1822,12 +1985,12 @@ local function render_tom_gpu()
   end
   pcall(function()
     initialize_tom_gpu(false)
-    if gpu.fill then
-      gpu.fill(color_value(THEME.desktop))
-    elseif gpu.filledRectangle then
-      tom_fill_rect(gpu, 1, 1, state.external.pixel_width - 1, state.external.pixel_height - 1, THEME.desktop)
-    end
+    render_wallpaper(gpu)
+    render_glass_chrome(gpu)
     for _, op in ipairs(state.frame_ops or {}) do
+      if should_skip_highres_op(op) then
+        -- high resolution wallpaper/chrome already drew this surface
+      else
       local pixel_left = (op.left - 1) * state.external.cell_width + 1
       local pixel_top = (op.top - 1) * state.external.cell_height + 1
       if op.kind == "fill" then
@@ -1840,11 +2003,48 @@ local function render_tom_gpu()
           op.background
         )
       elseif op.kind == "text" then
-        tom_draw_text(gpu, pixel_left, pixel_top, op.text, op.foreground, op.background)
+        local background = op.background
+        if background == THEME.menubar or background == THEME.dock or background == THEME.window_title or background == THEME.window_inactive then
+          background = nil
+        end
+        tom_draw_text(gpu, pixel_left, pixel_top, op.text, op.foreground, background)
+      end
       end
     end
     if gpu.sync then
       gpu.sync()
+    end
+  end)
+end
+
+local function show_boot_splash()
+  local gpu = state.external.gpu
+  if not gpu or state.boot_splash_done then
+    return
+  end
+  state.boot_splash_done = true
+  pcall(function()
+    initialize_tom_gpu(false)
+    for step = 1, 4 do
+      render_wallpaper(gpu)
+      local screen_width = state.external.pixel_width
+      local screen_height = state.external.pixel_height
+      local panel_width = math.min(240, math.floor(screen_width * 0.65))
+      local panel_height = 86
+      local left = math.floor((screen_width - panel_width) / 2)
+      local top = math.floor((screen_height - panel_height) / 2)
+      tom_round_rect(gpu, left + 5, top + 6, panel_width, panel_height, 16, rgb_value(13, 22, 28))
+      tom_round_rect(gpu, left, top, panel_width, panel_height, 16, rgb_value(42, 55, 63))
+      tom_draw_text(gpu, left + 24, top + 20, "DockOS", colors.white, nil)
+      tom_draw_text(gpu, left + 24, top + 40, "Release " .. VERSION, colors.cyan, nil)
+      local bar_width = panel_width - 48
+      local bar_top = top + panel_height - 24
+      tom_round_rect(gpu, left + 24, bar_top, bar_width, 8, 4, rgb_value(19, 30, 35))
+      tom_round_rect(gpu, left + 24, bar_top, math.floor(bar_width * step / 4), 8, 4, rgb_value(90, 200, 250))
+      if gpu.sync then
+        gpu.sync()
+      end
+      sleep(0.12)
     end
   end)
 end
@@ -2147,6 +2347,7 @@ local function run_loop()
   state.headless = true
   blank_terminal()
   scan_external_peripherals()
+  show_boot_splash()
   start_peripheral_scan_timer()
   while true do
     draw()

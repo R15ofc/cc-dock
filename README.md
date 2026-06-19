@@ -26,11 +26,15 @@ DockOS continuously scans for:
 - Tom's Peripherals bitmap monitor / monitor.
 
 If the hardware is connected after boot, DockOS picks it up automatically.
+Recommended screen size for the current UI is at least a `3x5` Tom bitmap monitor wall.
 
 ## UI
 
 - Mac-style desktop.
 - External-display first: no UI is drawn on the PC terminal.
+- Meadow/mountain default wallpaper.
+- Release boot splash.
+- High-resolution Tom GPU renderer with glass menu/dock and rounded windows.
 - System menu with About, reboot, shutdown, Files, Settings, Terminal.
 - Launchpad app for opening installed apps.
 - Bottom dock: pinned apps on the left, `|`, open apps on the right.
