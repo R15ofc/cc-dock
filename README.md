@@ -2,6 +2,12 @@
 
 Standalone OS shell for CC:Tweaked Advanced Computers.
 
+Current release: **DockOS Ridge 1.2.7**.
+
+DockOS release names follow a simple landscape line: short, serious names tied
+to the default visual identity. Example future names: Ridge, Summit, Harbor,
+Aurora, Atlas.
+
 DockOS renders on an external Tom's Peripherals GPU/Bitmap Monitor setup.
 The computer's own terminal is intentionally kept blank while the OS is running.
 
@@ -45,7 +51,7 @@ Supported Tom bitmap monitor walls: `2x3`, `2x4`, `3x6`, `4x8`; `1x2` has a comp
 - Store has search, popular square app cards, and compact app rows.
 - Docs uses a white page workspace, orange File menu, wrapping preview, print, and edit.
 - Paint uses a wide white canvas with a compact toolbar.
-- Settings uses vertical tabs for General, Theme, Devices, Privacy & Security, and Power.
+- Settings uses vertical tabs for General, Theme, Time, Devices, Privacy & Security, and Power.
 
 ## Apps
 

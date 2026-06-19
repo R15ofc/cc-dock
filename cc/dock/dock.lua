@@ -1,4 +1,6 @@
-local VERSION = "1.2.6"
+local VERSION = "1.2.7"
+local RELEASE_NAME = "Ridge"
+local DISPLAY_VERSION = "DockOS " .. RELEASE_NAME .. " " .. VERSION
 local LUMA_INSTALLER_URL = "https://raw.githubusercontent.com/R15ofc/cc-luma/main/luma-installer.lua"
 local LUMA_SOURCE_URL = "https://raw.githubusercontent.com/R15ofc/cc-luma/main/cc"
 local DOCS_DIR = "/dock/documents"
@@ -1081,7 +1083,7 @@ local function terminal_boot()
   if #state.terminal_lines > 0 then
     return
   end
-  terminal_print("DockOS Terminal " .. VERSION, colors.cyan)
+  terminal_print("DockOS " .. RELEASE_NAME .. " Terminal " .. VERSION, colors.cyan)
   terminal_print("Enter 'help' to list commands.", colors.lightGray)
 end
 
@@ -1214,7 +1216,7 @@ local function terminal_execute(command_line)
   elseif command == "time" then
     terminal_print(current_time_text(), colors.white)
   elseif command == "version" then
-    terminal_print(VERSION, colors.white)
+    terminal_print(DISPLAY_VERSION, colors.white)
   elseif command == "reboot" then
     os.reboot()
   elseif command == "shutdown" then
@@ -2074,7 +2076,7 @@ local function draw_settings(window_state)
   write_at(content_left, content_top, trim(state.settings_message, content_width), colors.cyan, THEME.field)
   if state.settings_tab == "general" then
     write_at(content_left, content_top + 2, "General", colors.white, THEME.field)
-    write_at(content_left, content_top + 4, "DockOS " .. VERSION, colors.lightGray, THEME.field)
+    write_at(content_left, content_top + 4, DISPLAY_VERSION, colors.lightGray, THEME.field)
     write_at(content_left, content_top + 5, "Screen " .. tostring(state.external.pixel_width) .. "x" .. tostring(state.external.pixel_height), colors.lightGray, THEME.field)
     write_at(content_left, content_top + 6, "Wallpaper " .. (state.wallpaper and "image" or tostring(state.wallpaper_error or "waiting")), colors.lightGray, THEME.field)
     draw_button("settings_gpu", content_left, content_top + 8, "Rescan display", nil, THEME.button)
@@ -3098,7 +3100,7 @@ function handle_action(action, payload, mouse_left, mouse_top)
   elseif action == "system_about" then
     state.system_menu_open = false
     set_modal("About DockOS", {
-      "DockOS " .. VERSION,
+      DISPLAY_VERSION,
       "Linux-style Tom GPU desktop",
       "Screen " .. tostring(state.external.pixel_width) .. "x" .. tostring(state.external.pixel_height),
     }, {
@@ -3419,7 +3421,7 @@ function run_loop()
 end
 
 function print_apps()
-  print("DockOS " .. VERSION)
+  print(DISPLAY_VERSION)
   for _, app_id in ipairs(PINNED) do
     local app = APPS[app_id]
     print(app.id .. " " .. app.name)
@@ -3500,7 +3502,7 @@ end
 function run_3d_doctor()
   state.headless = false
   reset_colors()
-  print("DockOS " .. VERSION .. " 3D doctor")
+  print(DISPLAY_VERSION .. " 3D doctor")
   scan_external_peripherals()
   local gpu = state.external.gpu
   if not gpu then
@@ -3522,7 +3524,7 @@ end
 function run_doctor()
   state.headless = false
   reset_colors()
-  print("DockOS " .. VERSION .. " doctor")
+  print(DISPLAY_VERSION .. " doctor")
   print("")
   if not peripheral or not peripheral.getNames then
     print("Peripheral API is missing.")
@@ -3626,7 +3628,7 @@ elseif command == "doctor" and args[2] == "3d" then
 elseif command == "doctor" or command == "gpu-test" then
   run_doctor()
 elseif command == "version" then
-  print(VERSION)
+  print(DISPLAY_VERSION)
 else
   run_loop()
 end
