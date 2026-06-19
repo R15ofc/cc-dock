@@ -52,7 +52,7 @@ Supported Tom bitmap monitor walls: `2x3`, `2x4`, `3x6`, `4x8`; `1x2` has a comp
 - Docs uses a white page workspace, orange File menu, wrapping preview, print, and edit.
 - Paint uses a wide white canvas with a compact toolbar.
 - Settings uses vertical tabs for General, Theme, Time, Devices, Privacy, and Power.
-- Luma has inline search, pinned Luma Web Creator, and a simple page editor.
+- Luma has Brave-style tabs/toolbars, inline address search, pinned shortcuts, saved sites, and Luma Web Creator.
 - App Studio has a code panel, live preview, component buttons, and example projects.
 
 ## Apps
@@ -64,7 +64,7 @@ Supported Tom bitmap monitor walls: `2x3`, `2x4`, `3x6`, `4x8`; `1x2` has a comp
 - **Paint** - simple pixel paint app.
 - **Blend** - blocky 3D modeling and render preview app.
 - **Settings** - themes, display rescan, speakers, printers, DirectGPU.
-- **Luma** - browser with inline search and Web Creator.
+- **Luma** - browser with tabs, address bar, Luma domains, and Web Creator.
 - **App Studio** - build DockOS app prototypes with code and preview.
 - **Terminal** - DockOS shell with file/app/power commands.
 
@@ -104,6 +104,13 @@ DockOS loads real image files from `/dock/assets`, not a Lua-drawn fake wallpape
 Built-in wallpaper assets include exact sizes for `2x3`, `2x4`, `3x6` (`384x192`), and `4x8` Tom bitmap monitor walls, plus legacy `382x192` and compact `1x2` fallbacks.
 The installer downloads only the best matching wallpaper for the detected GPU size to avoid CC disk space errors.
 Use a direct raw image URL, not a normal web page URL.
+
+## Luma Domains
+
+Luma sites have a visible site name and a generated username domain.
+Example: `RoadRover Official Site` is published as `www.roadrover-official-site.store`.
+Supported local TLDs include `.luma`, `.lw`, `.store`, `.online`, `.ai`, `.game`, and `.tv`.
+Published sites are saved in `/dock/luma-sites.txt`.
 
 Prepare assets on your computer:
 

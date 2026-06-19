@@ -5,6 +5,7 @@ local DOCS_DIR = "/dock/documents"
 local PAINT_DIR = "/dock/paintings"
 local ASSETS_DIR = "/dock/assets"
 local CONFIG_PATH = "/dock/config.txt"
+local LUMA_SITES_PATH = "/dock/luma-sites.txt"
 
 local args = { ... }
 local unpacker = table.unpack or unpack
@@ -237,12 +238,34 @@ local state = {
   focused_field = nil,
   luma_page = "home",
   luma_query = "",
-  luma_creator_title = "Luma Web Creator",
-  luma_creator_body = "Click here and write your page text.",
-  luma_creator_elements = {
-    { kind = "heading", text = "Luma Web Creator" },
-    { kind = "text", text = "Create a small site directly inside Luma." },
+  luma_tabs = {
+    { title = "New Tab", url = "", page = "home" },
   },
+  luma_active_tab = 1,
+  luma_tlds = { ".luma", ".lw", ".store", ".online", ".ai", ".game", ".tv" },
+  luma_creator_name = "RoadRover Official Site",
+  luma_creator_slug = "roadrover-official-site",
+  luma_creator_tld = ".store",
+  luma_creator_title = "RoadRover Official Site",
+  luma_creator_body = "Adventure cars, parts, and field notes for every road.",
+  luma_creator_elements = {
+    { kind = "heading", text = "RoadRover Official Site" },
+    { kind = "text", text = "Built with Luma Web Creator." },
+  },
+  luma_sites = {
+    {
+      name = "RoadRover Official Site",
+      slug = "roadrover-official-site",
+      tld = ".store",
+      title = "RoadRover Official Site",
+      body = "Adventure cars, parts, and field notes for every road.",
+      elements = {
+        { kind = "heading", text = "RoadRover Official Site" },
+        { kind = "text", text = "Official store and garage notes." },
+      },
+    },
+  },
+  luma_sites_loaded = false,
   studio_code = "app.title='Demo App'; shape(4,3,18,5); text(6,5,'Hello DockOS')",
   studio_message = "Preview ready",
   studio_examples_open = false,
@@ -910,6 +933,10 @@ end
 function inline_field_value(field)
   if field == "luma_query" then
     return state.luma_query or ""
+  elseif field == "luma_creator_name" then
+    return state.luma_creator_name or ""
+  elseif field == "luma_creator_slug" then
+    return state.luma_creator_slug or ""
   elseif field == "luma_creator_title" then
     return state.luma_creator_title or ""
   elseif field == "luma_creator_body" then
@@ -924,6 +951,10 @@ function set_inline_field_value(field, value)
   value = tostring(value or "")
   if field == "luma_query" then
     state.luma_query = value
+  elseif field == "luma_creator_name" then
+    state.luma_creator_name = value
+  elseif field == "luma_creator_slug" then
+    state.luma_creator_slug = value
   elseif field == "luma_creator_title" then
     state.luma_creator_title = value
   elseif field == "luma_creator_body" then
@@ -933,16 +964,169 @@ function set_inline_field_value(field, value)
   end
 end
 
-function submit_luma_query()
-  local query = tostring(state.luma_query or "")
+function luma_slugify(text)
+  local slug = string.lower(tostring(text or ""))
+  slug = slug:gsub("[^a-z0-9]+", "-"):gsub("^-+", ""):gsub("-+$", "")
+  if slug == "" then
+    slug = "untitled-site"
+  end
+  return slug
+end
+
+function luma_domain(slug, tld)
+  slug = luma_slugify(slug)
+  tld = tostring(tld or ".luma")
+  if tld:sub(1, 1) ~= "." then
+    tld = "." .. tld
+  end
+  return "www." .. slug .. tld
+end
+
+function luma_current_tab()
+  if type(state.luma_tabs) ~= "table" or #state.luma_tabs == 0 then
+    state.luma_tabs = { { title = "New Tab", url = "", page = "home" } }
+    state.luma_active_tab = 1
+  end
+  state.luma_active_tab = math.max(1, math.min(#state.luma_tabs, tonumber(state.luma_active_tab) or 1))
+  return state.luma_tabs[state.luma_active_tab]
+end
+
+function luma_site_domain(site)
+  return luma_domain(site and site.slug or "", site and site.tld or ".luma")
+end
+
+function luma_normalize_address(value)
+  local address = string.lower(tostring(value or "")):gsub("^%s+", ""):gsub("%s+$", "")
+  address = address:gsub("^https?://", ""):gsub("/$", "")
+  return address
+end
+
+function luma_find_site(value)
+  local address = luma_normalize_address(value)
+  for _, site in ipairs(state.luma_sites or {}) do
+    local domain = luma_normalize_address(luma_site_domain(site))
+    if address == domain or address == site.slug or contains_text(tostring(site.name or "") .. " " .. domain, address) then
+      return site, domain
+    end
+  end
+  return nil, nil
+end
+
+function luma_load_sites()
+  if state.luma_sites_loaded then
+    return
+  end
+  state.luma_sites_loaded = true
+  if not textutils or not textutils.unserialize or not fs.exists(LUMA_SITES_PATH) then
+    return
+  end
+  local body = read_file(LUMA_SITES_PATH)
+  local ok, sites = pcall(textutils.unserialize, body or "")
+  if ok and type(sites) == "table" and #sites > 0 then
+    state.luma_sites = sites
+  end
+end
+
+function luma_save_sites()
+  if not textutils or not textutils.serialize then
+    return
+  end
+  local ok, data = pcall(textutils.serialize, state.luma_sites or {})
+  if ok and data then
+    write_file(LUMA_SITES_PATH, data)
+  end
+end
+
+function luma_set_tab(page, url, title, site)
+  local tab = luma_current_tab()
+  tab.page = page or "home"
+  tab.url = url or ""
+  tab.title = title or (url ~= "" and url or "New Tab")
+  tab.site = site
+  state.luma_page = tab.page
+  if state.focused_field ~= "luma_query" then
+    state.luma_query = tab.url or ""
+  end
+end
+
+function luma_open_new_tab()
+  table.insert(state.luma_tabs, { title = "New Tab", url = "", page = "home" })
+  state.luma_active_tab = #state.luma_tabs
+  state.luma_query = ""
+  state.luma_page = "home"
+end
+
+function luma_close_tab(index)
+  index = tonumber(index) or state.luma_active_tab or 1
+  if #state.luma_tabs <= 1 then
+    state.luma_tabs = { { title = "New Tab", url = "", page = "home" } }
+    state.luma_active_tab = 1
+  else
+    table.remove(state.luma_tabs, math.max(1, math.min(#state.luma_tabs, index)))
+    state.luma_active_tab = math.max(1, math.min(#state.luma_tabs, state.luma_active_tab or 1))
+  end
+  local tab = luma_current_tab()
+  state.luma_query = tab.url or ""
+  state.luma_page = tab.page or "home"
+end
+
+function luma_navigate(value)
+  local query = tostring(value or "")
   local lowered = string.lower(query)
   if query == "" then
-    state.luma_page = "home"
-  elseif lowered:find("creator", 1, true) or lowered:find("luma://create", 1, true) then
-    state.luma_page = "creator"
-  else
-    state.luma_page = "search"
+    luma_set_tab("home", "", "New Tab", nil)
+    return
   end
+  if lowered:find("creator", 1, true) or lowered:find("luma://create", 1, true) then
+    luma_set_tab("creator", "luma://creator", "Web Creator", nil)
+    return
+  end
+  local site, domain = luma_find_site(query)
+  if site then
+    luma_set_tab("site", domain, site.name, site)
+  else
+    luma_set_tab("search", query, "Search", nil)
+  end
+end
+
+function luma_publish_site()
+  luma_load_sites()
+  local raw_slug = tostring(state.luma_creator_slug or "")
+  local raw_name = tostring(state.luma_creator_name or "")
+  local raw_title = tostring(state.luma_creator_title or "")
+  local slug = luma_slugify(raw_slug ~= "" and raw_slug or raw_name)
+  state.luma_creator_slug = slug
+  local site = {
+    name = raw_name ~= "" and raw_name or raw_title,
+    slug = slug,
+    tld = state.luma_creator_tld or ".luma",
+    title = raw_title,
+    body = tostring(state.luma_creator_body or ""),
+    elements = {},
+  }
+  for _, element in ipairs(state.luma_creator_elements or {}) do
+    table.insert(site.elements, { kind = element.kind, text = element.text })
+  end
+  local domain = luma_site_domain(site)
+  local replaced = false
+  for index, existing in ipairs(state.luma_sites or {}) do
+    if luma_site_domain(existing) == domain then
+      state.luma_sites[index] = site
+      replaced = true
+      break
+    end
+  end
+  if not replaced then
+    table.insert(state.luma_sites, site)
+  end
+  luma_save_sites()
+  luma_set_tab("site", domain, site.name, site)
+  state.toast = "Published " .. domain
+end
+
+function submit_luma_query()
+  luma_navigate(state.luma_query or "")
+  state.focused_field = nil
 end
 
 function apply_studio_example(example_id)
@@ -1001,6 +1185,12 @@ function submit_inline_field(field)
   elseif field == "studio_code" then
     state.studio_preview = "custom"
     state.studio_message = "Preview updated"
+  elseif field == "luma_creator_name" then
+    state.luma_creator_slug = luma_slugify(state.luma_creator_name)
+    state.toast = "Domain updated"
+  elseif field == "luma_creator_slug" then
+    state.luma_creator_slug = luma_slugify(state.luma_creator_slug)
+    state.toast = "Domain updated"
   elseif field == "luma_creator_title" or field == "luma_creator_body" then
     state.toast = "Luma page updated"
   end
@@ -1388,6 +1578,7 @@ local function terminal_execute(command_line)
 end
 
 local function open_luma()
+  luma_load_sites()
   local existing_window = find_window_by_app("luma")
   if existing_window then
     bring_to_front(existing_window.id)
@@ -2434,83 +2625,168 @@ local function draw_terminal(window_state)
   write_at(left + 1, top + height - 1, trim(state.terminal_cwd .. " $ " .. state.terminal_input .. "_", width - 2), colors.white, colors.black)
 end
 
-function draw_luma_creator(left, top, width, height)
-  fill(left, top, width, height, colors.white)
-  fill(left, top, width, 2, colors.purple)
-  write_at(left + 1, top, "Luma Web Creator", colors.white, colors.purple)
-  draw_button("luma_home", left + width - 8, top, "Home", nil, colors.gray)
-  local edit_width = math.min(26, math.max(14, math.floor(width * 0.42)))
-  local preview_left = left + edit_width + 2
-  local preview_width = math.max(12, width - edit_width - 3)
-  write_at(left + 1, top + 3, "Title", colors.gray, colors.white)
-  draw_inline_field(left + 1, top + 4, edit_width, "luma_creator_title", "Page title", colors.black)
-  write_at(left + 1, top + 6, "Text", colors.gray, colors.white)
-  draw_inline_field(left + 1, top + 7, edit_width, "luma_creator_body", "Page body", colors.black)
-  local tool_top = top + 9
-  draw_button("luma_add_heading", left + 1, tool_top, "Heading", nil, colors.purple)
-  draw_button("luma_add_text", left + 10, tool_top, "Text", nil, colors.purple)
-  draw_button("luma_clear", left + 17, tool_top, "Clear", nil, colors.gray)
+function draw_luma_tabs(left, top, width)
+  fill(left, top, width, 1, colors.black)
+  local tab_left = left + 1
+  for index, tab in ipairs(state.luma_tabs or {}) do
+    if index > 4 or tab_left + 11 >= left + width then
+      break
+    end
+    local active = index == state.luma_active_tab
+    local background = active and colors.gray or colors.black
+    fill(tab_left, top, 11, 1, background)
+    write_at(tab_left + 1, top, trim(tab.title or "Tab", 8), active and colors.white or colors.lightGray, background)
+    write_at(tab_left + 9, top, "x", colors.lightGray, background)
+    add_hit("luma_tab_select", tab_left, top, 9, 1, index)
+    add_hit("luma_tab_close", tab_left + 9, top, 1, 1, index)
+    tab_left = tab_left + 12
+  end
+  draw_button("luma_new_tab", math.min(left + width - 4, tab_left), top, "+", nil, colors.gray)
+end
 
-  fill(preview_left, top + 3, preview_width, math.max(1, height - 4), colors.lightGray)
-  write_at(preview_left + 1, top + 3, trim(state.luma_creator_title, preview_width - 2), colors.black, colors.lightGray)
+function draw_luma_toolbar(left, top, width)
+  fill(left, top, width, 2, colors.gray)
+  draw_button("luma_back", left + 1, top, "<", nil, colors.gray)
+  draw_button("luma_home", left + 4, top, "H", nil, colors.gray)
+  draw_button("luma_reload", left + 7, top, "R", nil, colors.gray)
+  draw_inline_field(left + 10, top, math.max(12, width - 22), "luma_query", "Anything you Imagine", colors.black)
+  write_at(left + width - 10, top, "[S]", colors.orange, colors.gray)
+  draw_button("luma_creator", left + width - 6, top, "+Web", nil, colors.purple)
+  fill(left, top + 1, width, 1, colors.black)
+  write_at(left + 2, top + 1, "Creator", colors.lightGray, colors.black)
+  add_hit("luma_creator", left + 2, top + 1, 7, 1, nil)
+  write_at(left + 11, top + 1, luma_domain(state.luma_creator_slug, state.luma_creator_tld), colors.lightGray, colors.black)
+end
+
+function draw_luma_site_preview(left, top, width, height, site)
+  fill(left, top, width, height, colors.white)
+  fill(left, top, width, 2, colors.lightGray)
+  write_at(left + 2, top, trim(site.name or "Untitled Site", width - 4), colors.black, colors.lightGray)
+  write_at(left + 2, top + 1, trim(luma_site_domain(site), width - 4), colors.gray, colors.lightGray)
+  write_at(left + 2, top + 3, trim(site.title or site.name or "Welcome", width - 4), colors.black, colors.white)
   local row_top = top + 5
-  for _, element in ipairs(state.luma_creator_elements or {}) do
+  for _, element in ipairs(site.elements or {}) do
     if row_top >= top + height - 1 then
       break
     end
     local marker = element.kind == "heading" and "# " or "- "
-    write_at(preview_left + 1, row_top, trim(marker .. tostring(element.text or ""), preview_width - 2), colors.black, colors.lightGray)
+    write_at(left + 2, row_top, trim(marker .. tostring(element.text or ""), width - 4), colors.gray, colors.white)
     row_top = row_top + 1
   end
-  if row_top < top + height - 1 then
-    local wrapped = wrap_text(state.luma_creator_body or "", preview_width - 2)
-    for _, line in ipairs(wrapped) do
-      if row_top >= top + height - 1 then
-        break
-      end
-      write_at(preview_left + 1, row_top, trim(line, preview_width - 2), colors.gray, colors.lightGray)
-      row_top = row_top + 1
+  for _, line in ipairs(wrap_text(site.body or "", width - 4)) do
+    if row_top >= top + height - 1 then
+      break
     end
+    write_at(left + 2, row_top, trim(line, width - 4), colors.gray, colors.white)
+    row_top = row_top + 1
   end
+end
+
+function draw_luma_creator(left, top, width, height)
+  fill(left, top, width, height, colors.black)
+  fill(left, top, width, 1, colors.purple)
+  write_at(left + 1, top, "Luma Web Creator", colors.white, colors.purple)
+  draw_button("luma_publish", left + width - 10, top, "Publish", nil, colors.orange)
+  local edit_width = math.min(30, math.max(20, math.floor(width * 0.48)))
+  local preview_left = left + edit_width + 1
+  local preview_width = math.max(12, width - edit_width - 1)
+  fill(left, top + 1, edit_width, height - 1, THEME.field)
+  write_at(left + 1, top + 1, "Name", colors.orange, THEME.field)
+  draw_inline_field(left + 1, top + 2, edit_width - 2, "luma_creator_name", "RoadRover Official Site", colors.black)
+  write_at(left + 1, top + 3, "Username", colors.orange, THEME.field)
+  draw_inline_field(left + 1, top + 4, edit_width - 2, "luma_creator_slug", "roadrover-official-site", colors.black)
+  write_at(left + 1, top + 5, trim(luma_domain(state.luma_creator_slug, state.luma_creator_tld), edit_width - 2), colors.lightGray, THEME.field)
+  local tld_left = left + 1
+  local tld_top = top + 6
+  for _, tld in ipairs(state.luma_tlds or {}) do
+    if tld_left + #tld + 2 >= left + edit_width then
+      tld_left = left + 1
+      tld_top = tld_top + 1
+    end
+    if tld_top > top + 7 then
+      break
+    end
+    tld_left = tld_left + draw_button("luma_tld", tld_left, tld_top, tld, tld, tld == state.luma_creator_tld and colors.orange or colors.gray)
+  end
+  write_at(left + 1, top + 9, "Hero", colors.orange, THEME.field)
+  draw_inline_field(left + 1, top + 10, edit_width - 2, "luma_creator_title", "Headline", colors.black)
+  write_at(left + 1, top + 11, "Body", colors.orange, THEME.field)
+  draw_inline_field(left + 1, top + 12, edit_width - 2, "luma_creator_body", "Page text", colors.black)
+  draw_button("luma_add_heading", left + 1, top + 14, "Heading", nil, colors.purple)
+  draw_button("luma_add_text", left + 10, top + 14, "Text", nil, colors.purple)
+  draw_button("luma_clear", left + 17, top + 14, "Clear", nil, colors.gray)
+
+  draw_luma_site_preview(preview_left, top + 1, preview_width, height - 1, {
+    name = state.luma_creator_name,
+    slug = state.luma_creator_slug,
+    tld = state.luma_creator_tld,
+    title = state.luma_creator_title,
+    body = state.luma_creator_body,
+    elements = state.luma_creator_elements,
+  })
 end
 
 function draw_luma_search(left, top, width, height)
   fill(left, top, width, height, colors.white)
-  write_at(left + 2, top + 1, "Luma", colors.purple, colors.white)
-  draw_inline_field(left + 8, top + 1, math.max(10, width - 18), "luma_query", "Anything you Imagine", colors.black)
-  draw_button("luma_search", left + width - 8, top + 1, "Go", nil, colors.purple)
-  write_at(left + 2, top + 4, "Results for: " .. trim(state.luma_query, math.max(1, width - 17)), colors.black, colors.white)
-  fill(left + 2, top + 6, width - 4, 3, colors.lightGray)
-  write_at(left + 4, top + 6, "Luma Web Creator", colors.black, colors.lightGray)
-  write_at(left + 4, top + 7, "Create a page with text blocks and preview.", colors.gray, colors.lightGray)
-  draw_button("luma_creator", left + width - 14, top + 7, "Open", nil, colors.purple)
-  fill(left + 2, top + 10, width - 4, 3, colors.lightGray)
-  write_at(left + 4, top + 10, "DockOS Docs", colors.black, colors.lightGray)
-  write_at(left + 4, top + 11, "Local documentation and examples.", colors.gray, colors.lightGray)
+  write_at(left + 2, top + 1, "Search results", colors.black, colors.white)
+  write_at(left + 17, top + 1, trim(state.luma_query, math.max(1, width - 20)), colors.gray, colors.white)
+  local row_top = top + 3
+  fill(left + 2, row_top, width - 4, 3, colors.lightGray)
+  write_at(left + 4, row_top, "Luma Web Creator", colors.black, colors.lightGray)
+  write_at(left + 4, row_top + 1, "Create and publish a Luma site.", colors.gray, colors.lightGray)
+  draw_button("luma_creator", left + width - 11, row_top + 1, "Open", nil, colors.purple)
+  row_top = row_top + 4
+  for _, site in ipairs(state.luma_sites or {}) do
+    if row_top + 2 >= top + height then
+      break
+    end
+    fill(left + 2, row_top, width - 4, 3, colors.lightGray)
+    write_at(left + 4, row_top, trim(site.name, width - 10), colors.black, colors.lightGray)
+    write_at(left + 4, row_top + 1, trim(luma_site_domain(site), width - 10), colors.gray, colors.lightGray)
+    add_hit("luma_open_site", left + 2, row_top, width - 4, 3, luma_site_domain(site))
+    row_top = row_top + 4
+  end
 end
 
 function draw_luma_home(left, top, width, height)
-  fill(left, top, width, height, colors.white)
+  fill(left, top, width, height, colors.black)
   local logo_left = left + math.max(1, math.floor(width / 2) - 3)
-  write_at(logo_left, top + 2, "Luma", colors.purple, colors.white)
-  local search_width = math.min(44, math.max(16, width - 8))
+  write_at(logo_left, top + 2, "Luma", colors.purple, colors.black)
+  write_at(left + math.max(2, math.floor(width / 2) - 10), top + 4, "Anything you Imagine", colors.lightGray, colors.black)
+  local search_width = math.min(42, math.max(16, width - 10))
   local search_left = left + math.max(2, math.floor((width - search_width) / 2))
-  draw_inline_field(search_left, top + 4, search_width, "luma_query", "Anything you Imagine", colors.black)
-  draw_button("luma_search", search_left + math.max(0, search_width - 5), top + 6, "Go", nil, colors.purple)
-  write_at(left + 2, top + 9, "Pinned", colors.gray, colors.white)
-  draw_app_icon(left + 2, top + 10, APPS.luma, 4, 3, "luma_creator", nil)
-  draw_app_icon(left + 8, top + 10, APPS.docs, 4, 3, "dock_pinned", "docs")
-  draw_app_icon(left + 14, top + 10, APPS.studio, 4, 3, "dock_pinned", "studio")
+  draw_inline_field(search_left, top + 6, search_width, "luma_query", "Anything you Imagine", colors.gray)
+  draw_button("luma_search", search_left + search_width - 5, top + 8, "Go", nil, colors.purple)
+  write_at(left + 2, top + 11, "Pinned", colors.lightGray, colors.black)
+  draw_app_icon(left + 2, top + 12, APPS.luma, 4, 3, "luma_creator", nil)
+  draw_app_icon(left + 8, top + 12, APPS.studio, 4, 3, "dock_pinned", "studio")
+  draw_app_icon(left + 14, top + 12, APPS.store, 4, 3, "dock_pinned", "store")
+  local site = state.luma_sites and state.luma_sites[1]
+  if site then
+    fill(left + 21, top + 12, 4, 3, colors.orange)
+    write_at(left + 22, top + 13, "RR", colors.black, colors.orange)
+    add_hit("luma_open_site", left + 21, top + 12, 4, 3, luma_site_domain(site))
+  end
 end
 
 function draw_luma(window_state)
   local left, top, width, height = content_rect(window_state)
-  if state.luma_page == "creator" then
-    draw_luma_creator(left, top, width, height)
-  elseif state.luma_page == "search" then
-    draw_luma_search(left, top, width, height)
+  local tab = luma_current_tab()
+  if state.focused_field ~= "luma_query" then
+    state.luma_query = tab.url or ""
+  end
+  draw_luma_tabs(left, top, width)
+  draw_luma_toolbar(left, top + 1, width)
+  local content_top = top + 3
+  local content_height = math.max(1, height - 3)
+  if tab.page == "creator" then
+    draw_luma_creator(left, content_top, width, content_height)
+  elseif tab.page == "site" and tab.site then
+    draw_luma_site_preview(left, content_top, width, content_height, tab.site)
+  elseif tab.page == "search" then
+    draw_luma_search(left, content_top, width, content_height)
   else
-    draw_luma_home(left, top, width, height)
+    draw_luma_home(left, content_top, width, content_height)
   end
 end
 
@@ -3522,9 +3798,28 @@ function handle_action(action, payload, mouse_left, mouse_top)
   elseif action == "luma_search" then
     submit_luma_query()
   elseif action == "luma_home" then
-    state.luma_page = "home"
+    luma_set_tab("home", "", "New Tab", nil)
+  elseif action == "luma_back" then
+    luma_set_tab("home", "", "New Tab", nil)
+  elseif action == "luma_reload" then
+    state.toast = "Reloaded"
+  elseif action == "luma_new_tab" then
+    luma_open_new_tab()
+  elseif action == "luma_tab_select" then
+    state.luma_active_tab = payload
+    local tab = luma_current_tab()
+    state.luma_query = tab.url or ""
+    state.luma_page = tab.page or "home"
+  elseif action == "luma_tab_close" then
+    luma_close_tab(payload)
   elseif action == "luma_creator" then
-    state.luma_page = "creator"
+    luma_set_tab("creator", "luma://creator", "Web Creator", nil)
+  elseif action == "luma_open_site" then
+    luma_navigate(payload)
+  elseif action == "luma_tld" then
+    state.luma_creator_tld = payload or ".luma"
+  elseif action == "luma_publish" then
+    luma_publish_site()
   elseif action == "luma_add_heading" then
     table.insert(state.luma_creator_elements, { kind = "heading", text = state.luma_creator_title or "Heading" })
   elseif action == "luma_add_text" then
