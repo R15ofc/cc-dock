@@ -1,4 +1,4 @@
-local VERSION = "1.2.0"
+local VERSION = "1.2.1"
 local LUMA_INSTALLER_URL = "https://raw.githubusercontent.com/R15ofc/cc-luma/main/luma-installer.lua"
 local LUMA_SOURCE_URL = "https://raw.githubusercontent.com/R15ofc/cc-luma/main/cc"
 local DOCS_DIR = "/dock/documents"
@@ -877,10 +877,11 @@ local function create_window(app_id, title, preferred_width, preferred_height)
   local screen_width, screen_height = screen_size()
   local window_id = state.next_window_id
   state.next_window_id = state.next_window_id + 1
-  local shell_left = 8
-  local shell_top = 3
-  local usable_width = math.max(24, screen_width - shell_left - 1)
-  local usable_height = math.max(10, screen_height - shell_top)
+  local shell_left = 5
+  local shell_top = 1
+  local shell_bottom = 3
+  local usable_width = math.max(24, screen_width - shell_left)
+  local usable_height = math.max(10, screen_height - shell_top - shell_bottom + 1)
   local window_width = math.min(preferred_width or 42, usable_width)
   local window_height = math.min(preferred_height or 14, usable_height)
   local offset = (#state.window_order % 3) * 2
@@ -955,8 +956,9 @@ end
 
 local function toggle_fullscreen(window_state)
   local screen_width, screen_height = screen_size()
-  local shell_left = 8
-  local shell_top = 3
+  local shell_left = 5
+  local shell_top = 1
+  local shell_bottom = 3
   if window_state.fullscreen then
     local saved = window_state.saved_rect
     if saved then
@@ -976,8 +978,8 @@ local function toggle_fullscreen(window_state)
     }
     window_state.left = shell_left
     window_state.top = shell_top
-    window_state.width = math.max(24, screen_width - shell_left)
-    window_state.height = math.max(10, screen_height - shell_top)
+    window_state.width = math.max(24, screen_width - shell_left + 1)
+    window_state.height = math.max(10, screen_height - shell_top - shell_bottom + 1)
     window_state.fullscreen = true
     window_state.minimized = false
   end
@@ -1281,6 +1283,34 @@ local function draw_app_icon(left, top, app, width, height, action, payload)
   end
 end
 
+local function pixel_fill(left, top, width, height, color)
+  if state.headless then
+    queue_frame_op({ kind = "pixel_fill", left = left, top = top, width = width, height = height, color = color or colors.black })
+  end
+end
+
+local function pixel_round(left, top, width, height, radius, color)
+  if state.headless then
+    queue_frame_op({ kind = "pixel_round", left = left, top = top, width = width, height = height, radius = radius or 3, color = color or colors.black })
+  end
+end
+
+local function pixel_tiny_text(left, top, text, color, scale)
+  if state.headless then
+    queue_frame_op({ kind = "tiny_text", left = left, top = top, text = tostring(text or ""), color = color or colors.white, scale = scale or 1 })
+  end
+end
+
+local function tiny_text_width(text, scale)
+  scale = scale or 1
+  local width = 0
+  for _ = 1, #tostring(text or "") do
+    width = width + 4 * scale
+  end
+  return math.max(0, width - scale)
+end
+
+
 local function draw_menu_bar()
 end
 
@@ -1289,10 +1319,10 @@ local function draw_system_menu()
     return
   end
   local screen_width, screen_height = screen_size()
-  local left = 8
-  local top = 3
-  local width = math.max(24, screen_width - left - 1)
-  local height = math.max(10, screen_height - top)
+  local left = 5
+  local top = 1
+  local width = math.max(24, screen_width - left)
+  local height = math.max(10, screen_height - top - 2)
   fill(left, top, width, height, colors.black)
   fill(left + 1, top + 1, width - 2, 3, THEME.field)
   write_at(left + 2, top + 1, "Activities", colors.orange, THEME.field)
@@ -1337,17 +1367,6 @@ local function draw_system_menu()
 end
 
 local function draw_desktop()
-  local screen_width, screen_height = screen_size()
-  if screen_width < 50 or screen_height < 18 then
-    return
-  end
-  local right = screen_width - 12
-  local top = 4
-  for workspace = 1, 4 do
-    local row_top = top + (workspace - 1) * 3
-    fill(right, row_top, 8, 2, workspace == 1 and colors.gray or colors.black)
-    write_at(right + 2, row_top, tostring(workspace), workspace == 1 and colors.orange or colors.lightGray, workspace == 1 and colors.gray or colors.black)
-  end
 end
 
 local function dock_width()
@@ -1363,40 +1382,75 @@ local function is_pinned(app_id)
   return false
 end
 
-local function draw_dock_icon(left, top, app_id, action)
-  local app = APPS[app_id]
-  if not app then
-    return
+local function draw_dock()
+  local screen_width, screen_height = screen_size()
+  local pixel_width = state.external.pixel_width or (screen_width * state.external.cell_width)
+  local pixel_height = state.external.pixel_height or (screen_height * state.external.cell_height)
+  local bottom_height = math.max(20, math.floor(pixel_height * 0.11))
+  local bottom_top = math.max(1, pixel_height - bottom_height + 1)
+
+  if state.headless then
+    local quick = {
+      { app = "launcher", action = "system_menu_toggle", color = colors.red },
+      { app = "finder", action = "dock_pinned", color = colors.blue },
+      { app = "terminal", action = "dock_pinned", color = colors.lime },
+      { app = "store", action = "dock_pinned", color = colors.magenta },
+      { app = "settings", action = "dock_pinned", color = colors.black },
+    }
+    for index, item in ipairs(quick) do
+      local icon_top = 4 + (index - 1) * 21
+      pixel_round(3, icon_top, 17, 17, 3, item.color)
+      local hit_top = math.max(1, math.floor((icon_top - 1) / state.external.cell_height) + 1)
+      add_hit(item.action, 1, hit_top, 4, 2, item.app)
+    end
+
+    pixel_fill(1, bottom_top, pixel_width, bottom_height, colors.black)
+    local icon_left = 4
+    local icon_top = bottom_top + 4
+    for _, app_id in ipairs(PINNED) do
+      if icon_left + 16 >= pixel_width - 70 then
+        break
+      end
+      pixel_round(icon_left, icon_top, 16, 14, 3, colors.red)
+      local hit_left = math.max(1, math.floor((icon_left - 1) / state.external.cell_width) + 1)
+      local hit_top = math.max(1, math.floor((icon_top - 1) / state.external.cell_height) + 1)
+      add_hit("dock_pinned", hit_left, hit_top, 3, 2, app_id)
+      icon_left = icon_left + 18
+    end
+    local open_left = icon_left + 4
+    for _, app_id in ipairs(state.open_dock_order) do
+      if not is_pinned(app_id) and open_left + 16 < pixel_width - 70 then
+        pixel_round(open_left, icon_top, 16, 14, 3, colors.orange)
+        local hit_left = math.max(1, math.floor((open_left - 1) / state.external.cell_width) + 1)
+        local hit_top = math.max(1, math.floor((icon_top - 1) / state.external.cell_height) + 1)
+        add_hit("dock_open", hit_left, hit_top, 3, 2, app_id)
+        open_left = open_left + 18
+      end
+    end
+    add_hit("dock_drop_end", math.max(1, math.floor((open_left - 1) / state.external.cell_width) + 1), screen_height - 1, 3, 2, nil)
+    local clock = textutils and textutils.formatTime and textutils.formatTime(os.time(), true) or ""
+    local status = "SYS " .. tostring(clock)
+    local status_width = tiny_text_width(status, 1)
+    pixel_tiny_text(math.max(1, pixel_width - status_width - 5), bottom_top + 7, status, colors.white, 1)
+  else
+    local bottom_row = math.max(1, screen_height - 1)
+    fill(1, bottom_row, screen_width, 2, colors.black)
+    local icon_left = 1
+    for _, app_id in ipairs(PINNED) do
+      if icon_left + 2 >= screen_width - 12 then
+        break
+      end
+      fill(icon_left, bottom_row, 2, 2, colors.red)
+      add_hit("dock_pinned", icon_left, bottom_row, 2, 2, app_id)
+      icon_left = icon_left + 3
+    end
+    local clock = textutils and textutils.formatTime and textutils.formatTime(os.time(), true) or ""
+    local status = "SYS " .. tostring(clock)
+    write_at(math.max(1, screen_width - #status), bottom_row, status, colors.white, colors.black)
   end
-  local open = is_open_dock_app(app_id)
-  local icon_background = open and THEME.selected or THEME.dock
-  if open then
-    fill(left - 1, top, 1, 2, app.color)
-  end
-  fill(left, top, 4, 2, icon_background)
-  draw_icon_asset(left, top, 4, 2, app.icon_asset, app.icon, colors.white, icon_background)
-  add_hit(action, left - 1, top, 6, 2, app_id)
 end
 
 local function draw_top_panel()
-  local screen_width = screen_size()
-  fill(1, 1, screen_width, 2, THEME.menubar)
-  local activity_background = state.system_menu_open and THEME.selected or THEME.menubar
-  fill(1, 1, 11, 2, activity_background)
-  write_at(2, 1, "Activities", foreground_for_background(activity_background), activity_background)
-  add_hit("system_menu_toggle", 1, 1, 12, 2, nil)
-  local active = state.active_window and state.windows[state.active_window] or nil
-  local app = active and APPS[active.app] or nil
-  local title = app and app.name or "DockOS Linux"
-  write_at(14, 1, trim(title, math.max(1, math.floor(screen_width / 3))), colors.lightGray, THEME.menubar)
-  local clock = textutils and textutils.formatTime and textutils.formatTime(os.time(), true) or ""
-  local center = math.max(14, math.floor((screen_width - #clock) / 2))
-  write_at(center, 1, clock, colors.white, THEME.menubar)
-  local tray = "NET  VOL  PWR"
-  if screen_width > #tray + 2 then
-    write_at(screen_width - #tray, 1, tray, colors.lightGray, THEME.menubar)
-    add_hit("system_open", screen_width - #tray, 1, #tray + 1, 2, "settings")
-  end
 end
 
 local function draw_dock()
@@ -2478,6 +2532,49 @@ local function tom_draw_text(gpu, left, top, text, foreground, background)
   end
 end
 
+local TINY_FONT = {
+  ["0"] = { "111", "101", "101", "101", "111" },
+  ["1"] = { "010", "110", "010", "010", "111" },
+  ["2"] = { "111", "001", "111", "100", "111" },
+  ["3"] = { "111", "001", "111", "001", "111" },
+  ["4"] = { "101", "101", "111", "001", "001" },
+  ["5"] = { "111", "100", "111", "001", "111" },
+  ["6"] = { "111", "100", "111", "101", "111" },
+  ["7"] = { "111", "001", "010", "010", "010" },
+  ["8"] = { "111", "101", "111", "101", "111" },
+  ["9"] = { "111", "101", "111", "001", "111" },
+  [":"] = { "000", "010", "000", "010", "000" },
+  ["A"] = { "010", "101", "111", "101", "101" },
+  ["D"] = { "110", "101", "101", "101", "110" },
+  ["K"] = { "101", "110", "100", "110", "101" },
+  ["M"] = { "101", "111", "111", "101", "101" },
+  ["O"] = { "111", "101", "101", "101", "111" },
+  ["P"] = { "110", "101", "110", "100", "100" },
+  ["S"] = { "111", "100", "111", "001", "111" },
+  ["Y"] = { "101", "101", "010", "010", "010" },
+  [" "] = { "000", "000", "000", "000", "000" },
+}
+
+local function tom_tiny_text(gpu, left, top, text, color, scale)
+  scale = math.max(1, math.floor(tonumber(scale) or 1))
+  local rgb = color_value(color or colors.white)
+  local cursor = math.floor(tonumber(left) or 1)
+  local base_top = math.floor(tonumber(top) or 1)
+  for index = 1, #tostring(text or "") do
+    local char = tostring(text):sub(index, index):upper()
+    local glyph = TINY_FONT[char] or TINY_FONT[" "]
+    for row = 1, #glyph do
+      local line = glyph[row]
+      for col = 1, #line do
+        if line:sub(col, col) == "1" then
+          tom_fill_rgb(gpu, cursor + (col - 1) * scale, base_top + (row - 1) * scale, scale, scale, rgb)
+        end
+      end
+    end
+    cursor = cursor + 4 * scale
+  end
+end
+
 local function render_wallpaper(gpu)
   local function wallpaper_candidates()
     local screen_width = state.external.pixel_width
@@ -2539,7 +2636,7 @@ local function render_wallpaper(gpu)
         end
       end
     end
-    state.wallpaper_error = state.wallpaper_error or "missing /dock/assets/wallpaper*.jpg"
+    state.wallpaper_error = state.wallpaper_error or "missing /dock/assets/wallpaper*.png"
     return nil
   end
 
@@ -2687,6 +2784,12 @@ local function render_tom_gpu()
           tom_draw_text(gpu, pixel_left, pixel_top, op.text, op.foreground, op.background)
         elseif op.kind == "image" then
           render_image_op(gpu, op, pixel_left, pixel_top, pixel_width, pixel_height)
+        elseif op.kind == "pixel_fill" then
+          tom_fill_rect(gpu, op.left, op.top, op.width, op.height, op.color)
+        elseif op.kind == "pixel_round" then
+          tom_round_rect(gpu, op.left, op.top, op.width, op.height, op.radius or 3, color_value(op.color or colors.black))
+        elseif op.kind == "tiny_text" then
+          tom_tiny_text(gpu, op.left, op.top, op.text, op.color, op.scale)
         end
       end
     end
@@ -3120,10 +3223,10 @@ local function run_loop()
       local window_state = state.windows[state.dragging_window.id]
       if window_state then
         local screen_width, screen_height = screen_size()
-        local max_left = math.max(8, screen_width - window_state.width + 1)
-        local max_top = math.max(3, screen_height - window_state.height + 1)
-        window_state.left = math.max(8, math.min(max_left, state.dragging_window.start_left + second - state.dragging_window.mouse_left))
-        window_state.top = math.max(3, math.min(max_top, state.dragging_window.start_top + third - state.dragging_window.mouse_top))
+        local max_left = math.max(5, screen_width - window_state.width + 1)
+        local max_top = math.max(1, screen_height - window_state.height - 2)
+        window_state.left = math.max(5, math.min(max_left, state.dragging_window.start_left + second - state.dragging_window.mouse_left))
+        window_state.top = math.max(1, math.min(max_top, state.dragging_window.start_top + third - state.dragging_window.mouse_top))
       end
     elseif event == "mouse_up" then
       local hitbox = hit_at(second, third)
