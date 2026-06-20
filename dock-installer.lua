@@ -1,4 +1,4 @@
-local DEFAULT_SOURCE_URL = "https://raw.githubusercontent.com/R15ofc/cc-dock/79900fbecaa752d366a7fc682c5aa658e936f2f0/cc"
+local DEFAULT_SOURCE_URL = "https://raw.githubusercontent.com/R15ofc/cc-dock/af74c85ecfcff118226f2e997630e53fc6d230c9/cc"
 local TEMP_DIR = "/dock/.installer"
 
 local FILES = {
