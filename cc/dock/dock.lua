@@ -1,4 +1,4 @@
-local VERSION = "1.2.9"
+local VERSION = "1.3.0"
 local RELEASE_NAME = "Kyrenia"
 local DISPLAY_VERSION = "DockOS " .. RELEASE_NAME .. " " .. VERSION
 local DOCS_DIR = "/dock/documents"
@@ -6,6 +6,9 @@ local PAINT_DIR = "/dock/paintings"
 local ASSETS_DIR = "/dock/assets"
 local CONFIG_PATH = "/dock/config.txt"
 local LUMA_SITES_PATH = "/dock/luma-sites.txt"
+local UPDATE_SOURCE_URL = "https://raw.githubusercontent.com/R15ofc/cc-dock/main/cc/dock/dock.lua"
+local UPDATE_INSTALLER_URL = "https://raw.githubusercontent.com/R15ofc/cc-dock/main/dock-installer.lua"
+local MESSENGER_PROTOCOL = "dock.messenger"
 
 local args = { ... }
 local unpacker = table.unpack or unpack
@@ -23,11 +26,11 @@ local CELL_HEIGHT = 9
 local PERIPHERAL_SCAN_SECONDS = 1
 local TARGET_3X6_WIDTH = 384
 local TARGET_3X6_HEIGHT = 192
-local DOCK_LEFT_PIXELS = 32
-local DOCK_BOTTOM_PIXELS = 34
-local DOCK_BUTTON_PIXELS = 24
-local DOCK_ICON_PIXELS = 24
-local DOCK_GAP_PIXELS = 6
+local DOCK_LEFT_PIXELS = 28
+local DOCK_BOTTOM_PIXELS = 24
+local DOCK_BUTTON_PIXELS = 18
+local DOCK_ICON_PIXELS = 18
+local DOCK_GAP_PIXELS = 5
 
 local THEME = {
   desktop = colors.black,
@@ -50,6 +53,30 @@ local THEME = {
 }
 
 local THEME_PRESETS = {
+  kyrenia = {
+    id = "kyrenia",
+    name = "Kyrenia",
+    color = colors.red,
+    values = {
+      desktop = colors.black,
+      menubar = colors.black,
+      dock = colors.black,
+      dock_shadow = colors.black,
+      window = colors.black,
+      window_title = colors.black,
+      window_inactive = colors.gray,
+      surface = colors.gray,
+      field = colors.black,
+      text = colors.white,
+      muted = colors.lightGray,
+      accent = colors.red,
+      selected = colors.red,
+      button = colors.red,
+      danger = colors.red,
+      warning = colors.orange,
+      success = colors.lime,
+    },
+  },
   linux = {
     id = "linux",
     name = "Linux",
@@ -172,9 +199,10 @@ local THEME_PRESETS = {
   },
 }
 
-local THEME_ORDER = { "linux", "dark", "forest", "purple", "win10" }
+local THEME_ORDER = { "kyrenia", "linux", "dark", "forest", "purple" }
 local SETTINGS_TABS = {
   { id = "general", label = "General" },
+  { id = "update", label = "Update" },
   { id = "theme", label = "Theme" },
   { id = "time", label = "Time" },
   { id = "devices", label = "Devices" },
@@ -193,9 +221,10 @@ local APPS = {
   luma = { id = "luma", name = "Luma", icon = "LM", icon_asset = "luma_tile", color = colors.purple },
   studio = { id = "studio", name = "App Studio", icon = "AS", icon_asset = "studio_tile", color = colors.lightBlue },
   terminal = { id = "terminal", name = "Terminal", icon = ">_", icon_asset = "terminal_tile", color = colors.green },
+  messenger = { id = "messenger", name = "Dock Messenger", icon = "MS", icon_asset = "messenger_tile", color = colors.red },
 }
 
-local PINNED = { "launcher", "finder", "store", "luma", "docs", "paint", "blend", "settings", "terminal" }
+local PINNED = { "launcher", "finder", "store", "luma", "docs", "paint", "blend", "messenger", "settings", "terminal" }
 
 local STORE_APPS = {
   { id = "docs", name = "Docs", trust = "built-in", popular = true, description = "Write documents and print them." },
@@ -206,6 +235,7 @@ local STORE_APPS = {
   { id = "terminal", name = "Terminal", trust = "built-in", description = "Run DockOS shell commands." },
   { id = "settings", name = "Settings", trust = "built-in", description = "Themes, display, speakers, printer, security." },
   { id = "luma", name = "Luma Browser", trust = "built-in", popular = true, description = "Browse Luma pages and create web sites." },
+  { id = "messenger", name = "Dock Messenger", trust = "built-in", popular = true, description = "Local modem chat over Rednet." },
 }
 
 local state = {
@@ -232,6 +262,9 @@ local state = {
   blend_object = "Cube",
   settings_message = "",
   settings_tab = "general",
+  update_status = "Not checked",
+  update_latest_version = "",
+  update_available = false,
   app_search_query = "",
   store_search_query = "",
   store_scroll = 0,
@@ -281,8 +314,13 @@ local state = {
   terminal_lines = {},
   terminal_input = "",
   terminal_cwd = "/",
+  messenger_peer = "",
+  messenger_text = "",
+  messenger_status = "Modem not scanned",
+  messenger_modem = nil,
+  messenger_messages = {},
   boot_splash_done = false,
-  theme_id = "win10",
+  theme_id = "kyrenia",
   wallpaper = nil,
   wallpaper_key = nil,
   wallpaper_error = nil,
@@ -606,6 +644,9 @@ local function current_time_text()
 end
 
 local function apply_theme(theme_id)
+  if theme_id == "win10" then
+    theme_id = "kyrenia"
+  end
   local preset = THEME_PRESETS[theme_id] or THEME_PRESETS.linux
   for key, value in pairs(preset.values) do
     THEME[key] = value
@@ -860,7 +901,77 @@ local function download_to_file(url, path)
   return true
 end
 
-local function run_hidden(callback)
+local run_hidden
+
+local function parse_version_from_source(source)
+  return tostring(source or ""):match('local%s+VERSION%s*=%s*"([^"]+)"')
+end
+
+local function compare_versions(left_version, right_version)
+  local function parts(version)
+    local result = {}
+    for part in tostring(version or ""):gmatch("%d+") do
+      table.insert(result, tonumber(part) or 0)
+    end
+    return result
+  end
+  local left_parts = parts(left_version)
+  local right_parts = parts(right_version)
+  for index = 1, math.max(#left_parts, #right_parts) do
+    local left_part = left_parts[index] or 0
+    local right_part = right_parts[index] or 0
+    if left_part ~= right_part then
+      return left_part > right_part and 1 or -1
+    end
+  end
+  return 0
+end
+
+local function check_for_update()
+  state.update_status = "Checking GitHub main..."
+  local source, err = download(UPDATE_SOURCE_URL)
+  if not source then
+    state.update_available = false
+    state.update_status = "Check failed: " .. tostring(err)
+    return false
+  end
+  local latest = parse_version_from_source(source)
+  if not latest then
+    state.update_available = false
+    state.update_status = "Check failed: version not found"
+    return false
+  end
+  state.update_latest_version = latest
+  state.update_available = compare_versions(latest, VERSION) > 0
+  state.update_status = state.update_available and ("Update available: " .. latest) or ("DockOS is current: " .. VERSION)
+  return true
+end
+
+local function install_update()
+  if not state.update_latest_version or state.update_latest_version == "" then
+    check_for_update()
+  end
+  if not state.update_available then
+    state.update_status = "No update available. Current: " .. VERSION
+    return
+  end
+  if not shell or not shell.run then
+    state.update_status = "Update failed: shell API unavailable"
+    return
+  end
+  state.update_status = "Installing DockOS " .. tostring(state.update_latest_version) .. "..."
+  local ok, result = run_hidden(function()
+    return shell.run("wget", "run", UPDATE_INSTALLER_URL)
+  end)
+  if ok and result ~= false then
+    state.update_status = "Installed " .. tostring(state.update_latest_version) .. ". Reboot required."
+    state.toast = "DockOS update installed"
+  else
+    state.update_status = "Update failed: installer returned error"
+  end
+end
+
+function run_hidden(callback)
   if window and term and term.current and term.redirect then
     local current = term.current()
     local hidden = window.create(current, 1, 1, 1, 1, false)
@@ -870,6 +981,92 @@ local function run_hidden(callback)
     return ok, result
   end
   return pcall(callback)
+end
+
+local function messenger_append(sender, text, outgoing)
+  state.messenger_messages = state.messenger_messages or {}
+  table.insert(state.messenger_messages, {
+    sender = tostring(sender or "unknown"),
+    text = tostring(text or ""),
+    outgoing = outgoing and true or false,
+    time = current_time_text(),
+  })
+  while #state.messenger_messages > 80 do
+    table.remove(state.messenger_messages, 1)
+  end
+end
+
+local function messenger_open_modem()
+  if not rednet or not rednet.open then
+    state.messenger_status = "Rednet API unavailable"
+    return false
+  end
+  if state.messenger_modem and rednet.isOpen and rednet.isOpen(state.messenger_modem) then
+    return true
+  end
+  if not peripheral or not peripheral.getNames or not peripheral.getType then
+    state.messenger_status = "Peripheral API unavailable"
+    return false
+  end
+  for _, name in ipairs(peripheral.getNames()) do
+    local ok, kind = pcall(peripheral.getType, name)
+    local kind_text = type(kind) == "table" and table.concat(kind, ",") or tostring(kind or "")
+    if ok and kind_text:find("modem", 1, true) then
+      local open_ok = pcall(rednet.open, name)
+      if open_ok then
+        state.messenger_modem = name
+        state.messenger_status = "Modem: " .. name .. " | ID " .. tostring(os.getComputerID and os.getComputerID() or "?")
+        return true
+      end
+    end
+  end
+  state.messenger_status = "No modem found"
+  return false
+end
+
+local function messenger_send()
+  local text = tostring(state.messenger_text or "")
+  if text == "" then
+    state.messenger_status = "Message is empty"
+    return
+  end
+  if not messenger_open_modem() then
+    return
+  end
+  local peer_id = tonumber(state.messenger_peer)
+  local packet = {
+    app = "Dock Messenger",
+    version = VERSION,
+    from = os.getComputerID and os.getComputerID() or 0,
+    text = text,
+  }
+  local ok, result
+  if peer_id then
+    ok, result = pcall(rednet.send, peer_id, packet, MESSENGER_PROTOCOL)
+  else
+    ok, result = pcall(rednet.broadcast, packet, MESSENGER_PROTOCOL)
+  end
+  if ok and result ~= false then
+    messenger_append(peer_id and ("to " .. tostring(peer_id)) or "broadcast", text, true)
+    state.messenger_text = ""
+    state.messenger_status = peer_id and ("Sent to " .. tostring(peer_id)) or "Broadcast sent"
+  else
+    state.messenger_status = "Send failed"
+  end
+end
+
+local function handle_messenger_event(sender_id, packet, protocol)
+  if protocol ~= MESSENGER_PROTOCOL then
+    return false
+  end
+  local text = type(packet) == "table" and tostring(packet.text or "") or tostring(packet or "")
+  if text == "" then
+    return true
+  end
+  messenger_append("ID " .. tostring(sender_id), text, false)
+  state.messenger_status = "Received from ID " .. tostring(sender_id)
+  state.toast = "Dock Messenger: ID " .. tostring(sender_id)
+  return true
 end
 
 local function set_modal(title, body, buttons)
@@ -943,6 +1140,10 @@ function inline_field_value(field)
     return state.luma_creator_body or ""
   elseif field == "studio_code" then
     return state.studio_code or ""
+  elseif field == "messenger_peer" then
+    return state.messenger_peer or ""
+  elseif field == "messenger_text" then
+    return state.messenger_text or ""
   end
   return ""
 end
@@ -961,6 +1162,10 @@ function set_inline_field_value(field, value)
     state.luma_creator_body = value
   elseif field == "studio_code" then
     state.studio_code = value
+  elseif field == "messenger_peer" then
+    state.messenger_peer = value
+  elseif field == "messenger_text" then
+    state.messenger_text = value
   end
 end
 
@@ -1193,6 +1398,8 @@ function submit_inline_field(field)
     state.toast = "Domain updated"
   elseif field == "luma_creator_title" or field == "luma_creator_body" then
     state.toast = "Luma page updated"
+  elseif field == "messenger_text" then
+    messenger_send()
   end
 end
 
@@ -1512,7 +1719,7 @@ local function terminal_execute(command_line)
   if command == "help" then
     terminal_print("help, clear, pwd, ls [path], cd <path>", colors.cyan)
     terminal_print("cat <file>, mkdir <path>, touch <file>, rm <path>", colors.cyan)
-    terminal_print("open <app>, apps, wallpaper <url>, version, time", colors.cyan)
+    terminal_print("open <app>, apps, wallpaper <url>, update, version, time", colors.cyan)
     terminal_print("reboot, shutdown", colors.cyan)
   elseif command == "clear" then
     state.terminal_lines = {}
@@ -1581,6 +1788,9 @@ local function terminal_execute(command_line)
     end
   elseif command == "time" then
     terminal_print(current_time_text(), colors.white)
+  elseif command == "update" then
+    check_for_update()
+    terminal_print(state.update_status, state.update_available and colors.orange or colors.white)
   elseif command == "version" then
     terminal_print(DISPLAY_VERSION, colors.white)
   elseif command == "reboot" then
@@ -1619,6 +1829,8 @@ function open_app(app_id)
   elseif app_id == "terminal" then
     open_terminal()
     return
+  elseif app_id == "messenger" then
+    messenger_open_modem()
   end
   local existing_window = find_window_by_app(app_id)
   if existing_window then
@@ -1637,6 +1849,7 @@ function open_app(app_id)
     or app_id == "docs" and 70
     or app_id == "settings" and 70
     or app_id == "store" and 68
+    or app_id == "messenger" and 64
     or 64
   local preferred_height = app_id == "finder" and 34
     or app_id == "paint" and 35
@@ -1646,6 +1859,7 @@ function open_app(app_id)
     or app_id == "docs" and 36
     or app_id == "settings" and 34
     or app_id == "store" and 34
+    or app_id == "messenger" and 30
     or 30
   create_window(app_id, app.name, preferred_width, preferred_height)
 end
@@ -1849,9 +2063,10 @@ local function draw_dock()
     }
     for index, item in ipairs(quick) do
       local app = APPS[item.app]
-      local icon_top = 8 + (index - 1) * (DOCK_BUTTON_PIXELS + DOCK_GAP_PIXELS)
-      pixel_fill(5, icon_top, DOCK_BUTTON_PIXELS, DOCK_BUTTON_PIXELS, item.color)
-      if app then
+      local icon_left = 4
+      local icon_top = 4 + (index - 1) * (DOCK_BUTTON_PIXELS + DOCK_GAP_PIXELS)
+      pixel_fill(icon_left, icon_top, DOCK_BUTTON_PIXELS, DOCK_BUTTON_PIXELS, item.color)
+      if app and DOCK_ICON_PIXELS >= 24 then
         pixel_icon(5 + math.floor((DOCK_BUTTON_PIXELS - DOCK_ICON_PIXELS) / 2), icon_top + math.floor((DOCK_BUTTON_PIXELS - DOCK_ICON_PIXELS) / 2), DOCK_ICON_PIXELS, DOCK_ICON_PIXELS, app.icon_asset, app.icon, nil, colors.white)
       end
       local hit_top = math.max(1, math.floor((icon_top - 1) / state.external.cell_height) + 1)
@@ -1859,19 +2074,19 @@ local function draw_dock()
     end
 
     pixel_fill(1, bottom_top, pixel_width, bottom_height, colors.black)
-    local icon_left = 8
+    local icon_left = 5
     local icon_top = bottom_top + math.floor((bottom_height - DOCK_BUTTON_PIXELS) / 2)
     for _, app_id in ipairs(PINNED) do
       local app = APPS[app_id]
-      if icon_left + DOCK_BUTTON_PIXELS >= pixel_width - 96 then
+      if icon_left + DOCK_BUTTON_PIXELS >= pixel_width - 86 then
         break
       end
-      pixel_fill(icon_left, icon_top, DOCK_BUTTON_PIXELS, DOCK_BUTTON_PIXELS, app and app.color or colors.red)
-      if app then
+      pixel_fill(icon_left, icon_top, DOCK_BUTTON_PIXELS, DOCK_BUTTON_PIXELS, colors.red)
+      if app and DOCK_ICON_PIXELS >= 24 then
         pixel_icon(icon_left + math.floor((DOCK_BUTTON_PIXELS - DOCK_ICON_PIXELS) / 2), icon_top + math.floor((DOCK_BUTTON_PIXELS - DOCK_ICON_PIXELS) / 2), DOCK_ICON_PIXELS, DOCK_ICON_PIXELS, app.icon_asset, app.icon, nil, colors.white)
       end
       if is_open_dock_app(app_id) then
-        pixel_fill(icon_left, icon_top + DOCK_BUTTON_PIXELS - 3, DOCK_BUTTON_PIXELS, 3, colors.white)
+        pixel_fill(icon_left, icon_top + DOCK_BUTTON_PIXELS - 2, DOCK_BUTTON_PIXELS, 2, colors.white)
       end
       local hit_left = math.max(1, math.floor((icon_left - 1) / state.external.cell_width) + 1)
       local hit_top = math.max(1, math.floor((icon_top - 1) / state.external.cell_height) + 1)
@@ -1881,9 +2096,9 @@ local function draw_dock()
     local open_left = icon_left + 4
     for _, app_id in ipairs(state.open_dock_order) do
       local app = APPS[app_id]
-      if not is_pinned(app_id) and open_left + DOCK_BUTTON_PIXELS < pixel_width - 96 then
-        pixel_fill(open_left, icon_top, DOCK_BUTTON_PIXELS, DOCK_BUTTON_PIXELS, app and app.color or colors.orange)
-        if app then
+      if not is_pinned(app_id) and open_left + DOCK_BUTTON_PIXELS < pixel_width - 86 then
+        pixel_fill(open_left, icon_top, DOCK_BUTTON_PIXELS, DOCK_BUTTON_PIXELS, app and app.color or colors.red)
+        if app and DOCK_ICON_PIXELS >= 24 then
           pixel_icon(open_left + math.floor((DOCK_BUTTON_PIXELS - DOCK_ICON_PIXELS) / 2), icon_top + math.floor((DOCK_BUTTON_PIXELS - DOCK_ICON_PIXELS) / 2), DOCK_ICON_PIXELS, DOCK_ICON_PIXELS, app.icon_asset, app.icon, nil, colors.white)
         end
         local hit_left = math.max(1, math.floor((open_left - 1) / state.external.cell_width) + 1)
@@ -1897,15 +2112,15 @@ local function draw_dock()
     local status_width = tiny_text_width(status, 1)
     pixel_tiny_text(math.max(1, pixel_width - status_width - 8), bottom_top + math.floor((bottom_height - 5) / 2), status, colors.white, 1)
   else
-    local bottom_row = math.max(1, screen_height - 1)
-    fill(1, bottom_row, screen_width, 2, colors.black)
+    local bottom_row = screen_height
+    fill(1, bottom_row, screen_width, 1, colors.black)
     local icon_left = 1
     for _, app_id in ipairs(PINNED) do
-      if icon_left + 2 >= screen_width - 12 then
+      if icon_left + 1 >= screen_width - 12 then
         break
       end
-      fill(icon_left, bottom_row, 2, 2, colors.red)
-      add_hit("dock_pinned", icon_left, bottom_row, 2, 2, app_id)
+      fill(icon_left, bottom_row, 1, 1, colors.red)
+      add_hit("dock_pinned", icon_left, bottom_row, 1, 1, app_id)
       icon_left = icon_left + 3
     end
     local status = current_time_text()
@@ -1922,11 +2137,14 @@ end
 
 local function draw_window_frame(window_state)
   local active = state.active_window == window_state.id
-  local title_color = active and THEME.window_title or THEME.window_inactive
+  local title_color = active and colors.black or THEME.window_inactive
   local title_foreground = active and colors.white or colors.lightGray
   local title_height = window_title_height(window_state)
   fill(window_state.left, window_state.top, window_state.width, window_state.height, THEME.window)
   fill(window_state.left, window_state.top, window_state.width, title_height, title_color)
+  if title_height > 1 then
+    fill(window_state.left, window_state.top + title_height - 1, window_state.width, 1, active and THEME.accent or colors.gray)
+  end
   add_hit("window_focus", window_state.left, window_state.top, window_state.width, window_state.height, window_state.id)
   local controls_left = math.max(window_state.left + 1, window_state.left + window_state.width - 8)
   write_at(window_state.left + 1, window_state.top, trim(window_state.title, math.max(1, controls_left - window_state.left - 2)), title_foreground, title_color)
@@ -2479,6 +2697,16 @@ local function draw_settings(window_state)
     write_at(content_left, content_top + 6, "Target 3x6 " .. tostring(TARGET_3X6_WIDTH) .. "x" .. tostring(TARGET_3X6_HEIGHT), colors.lightGray, THEME.field)
     write_at(content_left, content_top + 7, "Wallpaper " .. (state.wallpaper and "image" or tostring(state.wallpaper_error or "waiting")), colors.lightGray, THEME.field)
     draw_button("settings_gpu", content_left, content_top + 9, "Rescan display", nil, THEME.button)
+  elseif state.settings_tab == "update" then
+    write_at(content_left, content_top + 2, "Software Update", colors.white, THEME.field)
+    write_at(content_left, content_top + 4, "Current: " .. DISPLAY_VERSION, colors.lightGray, THEME.field)
+    write_at(content_left, content_top + 5, "Latest: " .. (state.update_latest_version ~= "" and state.update_latest_version or "not checked"), colors.lightGray, THEME.field)
+    write_at(content_left, content_top + 7, trim(state.update_status or "Not checked", content_width), state.update_available and colors.orange or colors.lightGray, THEME.field)
+    local button_left = content_left
+    button_left = button_left + draw_button("update_check", button_left, content_top + 9, "Check", nil, colors.gray) + 1
+    if state.update_available then
+      draw_button("update_install", button_left, content_top + 9, "Update", nil, THEME.button)
+    end
   elseif state.settings_tab == "theme" then
     write_at(content_left, content_top + 2, "Theme", colors.white, THEME.field)
     write_at(content_left, content_top + 4, "Current: " .. tostring(state.theme_id or "linux"), colors.lightGray, THEME.field)
@@ -2899,6 +3127,48 @@ function draw_studio(window_state)
   draw_studio_preview(preview_left, top + 2, preview_width, height - 2)
 end
 
+local function draw_messenger(window_state)
+  local left, top, width, height = content_rect(window_state)
+  fill(left, top, width, height, colors.black)
+  fill(left, top, width, 2, colors.red)
+  write_at(left + 1, top, "Dock Messenger", colors.white, colors.red)
+  write_at(left + 1, top + 1, trim(state.messenger_status or "", width - 2), colors.white, colors.red)
+
+  local compose_width = math.min(26, math.max(18, math.floor(width * 0.36)))
+  local list_width = math.max(20, width - compose_width - 2)
+  local list_left = left + 1
+  local list_top = top + 3
+  local compose_left = list_left + list_width + 1
+  local panel_height = math.max(6, height - 4)
+  fill(list_left, list_top, list_width, panel_height, THEME.field)
+  fill(compose_left, list_top, compose_width, panel_height, colors.gray)
+  write_at(list_left + 1, list_top, "Messages", colors.white, THEME.field)
+
+  local visible = math.max(1, panel_height - 2)
+  local first = math.max(1, #(state.messenger_messages or {}) - visible + 1)
+  local row_top = list_top + 1
+  for index = first, #(state.messenger_messages or {}) do
+    local message = state.messenger_messages[index]
+    local prefix = message.outgoing and "You" or message.sender
+    local row_background = message.outgoing and colors.gray or THEME.field
+    if row_top >= list_top + panel_height then
+      break
+    end
+    fill(list_left + 1, row_top, list_width - 2, 1, row_background)
+    write_at(list_left + 2, row_top, trim(prefix .. ": " .. message.text, list_width - 4), message.outgoing and colors.white or colors.lightGray, row_background)
+    row_top = row_top + 1
+  end
+
+  write_at(compose_left + 1, list_top + 1, "Peer ID", colors.white, colors.gray)
+  draw_inline_field(compose_left + 1, list_top + 2, compose_width - 2, "messenger_peer", "blank = broadcast", colors.black)
+  write_at(compose_left + 1, list_top + 4, "Message", colors.white, colors.gray)
+  draw_inline_field(compose_left + 1, list_top + 5, compose_width - 2, "messenger_text", "Type message", colors.black)
+  draw_button("messenger_send", compose_left + 1, list_top + 7, "Send", nil, colors.red)
+  draw_button("messenger_scan", compose_left + 8, list_top + 7, "Rescan", nil, colors.black)
+  write_at(compose_left + 1, list_top + panel_height - 2, trim("Protocol: " .. MESSENGER_PROTOCOL, compose_width - 2), colors.lightGray, colors.gray)
+  write_at(compose_left + 1, list_top + panel_height - 1, "Enter sends message", colors.lightGray, colors.gray)
+end
+
 local function draw_window_content(window_state)
   if window_state.app == "launcher" then
     draw_launcher(window_state)
@@ -2920,6 +3190,8 @@ local function draw_window_content(window_state)
     draw_terminal(window_state)
   elseif window_state.app == "luma" then
     draw_luma(window_state)
+  elseif window_state.app == "messenger" then
+    draw_messenger(window_state)
   end
 end
 
@@ -3408,6 +3680,7 @@ function render_wallpaper(gpu)
     gpu.fill(rgb_value(10, 15, 18))
     return
   end
+  tom_fill_rgb(gpu, 1, 1, state.external.pixel_width, state.external.pixel_height, rgb_value(10, 15, 18))
 end
 
 function load_icon_image(gpu, path)
@@ -3512,16 +3785,8 @@ function render_tom_gpu()
   end
   local ok, err = pcall(function()
     initialize_tom_gpu(false)
-    if state.wallpaper or state.wallpaper_attempted then
-      render_wallpaper(gpu)
-    else
-      state.wallpaper_attempted = true
-      if gpu.fill then
-        gpu.fill(rgb_value(10, 15, 18))
-      else
-        tom_fill_rgb(gpu, 1, 1, state.external.pixel_width, state.external.pixel_height, rgb_value(10, 15, 18))
-      end
-    end
+    state.wallpaper_attempted = true
+    render_wallpaper(gpu)
     for _, op in ipairs(state.frame_ops or {}) do
       if should_skip_highres_op(op) and state.wallpaper then
         -- wallpaper already drew this surface
@@ -3933,6 +4198,10 @@ function handle_action(action, payload, mouse_left, mouse_top)
     state.paint_cells = {}
   elseif action == "paint_save" then
     save_painting()
+  elseif action == "messenger_send" then
+    messenger_send()
+  elseif action == "messenger_scan" then
+    messenger_open_modem()
   elseif action == "settings_gpu" then
     scan_external_peripherals()
   elseif action == "settings_monitor" then
@@ -3943,6 +4212,13 @@ function handle_action(action, payload, mouse_left, mouse_top)
     printer_test()
   elseif action == "settings_tab" then
     state.settings_tab = payload or "general"
+    if state.settings_tab == "update" and state.update_status == "Not checked" then
+      check_for_update()
+    end
+  elseif action == "update_check" then
+    check_for_update()
+  elseif action == "update_install" then
+    install_update()
   elseif action == "time_decrease" then
     state.timezone_offset = normalize_timezone_offset((state.timezone_offset or DEFAULT_TIMEZONE_OFFSET) - 1)
     local ok, err = save_config()
@@ -4052,6 +4328,7 @@ function run_loop()
   load_config()
   blank_terminal()
   scan_external_peripherals()
+  messenger_open_modem()
   show_boot_splash()
   start_peripheral_scan_timer()
   while true do
@@ -4060,7 +4337,9 @@ function run_loop()
     end
     local event, first, second, third, fourth = os.pullEvent()
     event, first, second, third = normalize_external_event(event, first, second, third, fourth)
-    if event == "mouse_click" then
+    if event == "rednet_message" then
+      handle_messenger_event(first, second, third)
+    elseif event == "mouse_click" then
       local hitbox = hit_at(second, third)
       if hitbox and (not state.input or hitbox.id == "input_ok" or hitbox.id == "input_cancel") then
         handle_action(hitbox.id, hitbox.payload, second, third)
@@ -4344,8 +4623,20 @@ elseif command == "luma" then
 elseif command == "studio" then
   open_app("studio")
   run_loop()
+elseif command == "messenger" then
+  open_app("messenger")
+  run_loop()
 elseif command == "apps" then
   print_apps()
+elseif command == "update" then
+  if args[2] == "install" then
+    check_for_update()
+    install_update()
+    print(state.update_status)
+  else
+    check_for_update()
+    print(state.update_status)
+  end
 elseif command == "wallpaper" and args[2] then
   local ok, err = install_wallpaper_url(args[2])
   if ok then
