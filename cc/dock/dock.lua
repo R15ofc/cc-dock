@@ -1,4 +1,4 @@
-local VERSION = "1.3.1"
+local VERSION = "1.3.2"
 local RELEASE_NAME = "Kyrenia"
 local DISPLAY_VERSION = "DockOS " .. RELEASE_NAME .. " " .. VERSION
 local DOCS_DIR = "/dock/documents"
@@ -53,9 +53,33 @@ local THEME = {
 }
 
 local THEME_PRESETS = {
-  kyrenia = {
-    id = "kyrenia",
-    name = "Kyrenia",
+  blue = {
+    id = "blue",
+    name = "Blue",
+    color = colors.blue,
+    values = {
+      desktop = colors.black,
+      menubar = colors.black,
+      dock = colors.black,
+      dock_shadow = colors.black,
+      window = colors.black,
+      window_title = colors.black,
+      window_inactive = colors.gray,
+      surface = colors.gray,
+      field = colors.black,
+      text = colors.white,
+      muted = colors.lightGray,
+      accent = colors.blue,
+      selected = colors.blue,
+      button = colors.blue,
+      danger = colors.red,
+      warning = colors.orange,
+      success = colors.lime,
+    },
+  },
+  red = {
+    id = "red",
+    name = "Red",
     color = colors.red,
     values = {
       desktop = colors.black,
@@ -77,52 +101,52 @@ local THEME_PRESETS = {
       success = colors.lime,
     },
   },
-  linux = {
-    id = "linux",
-    name = "Linux",
-    color = colors.orange,
-    values = {
-      desktop = colors.black,
-      menubar = colors.black,
-      dock = colors.gray,
-      dock_shadow = colors.black,
-      window = colors.black,
-      window_title = colors.gray,
-      window_inactive = colors.black,
-      surface = colors.gray,
-      field = colors.black,
-      text = colors.white,
-      muted = colors.lightGray,
-      accent = colors.orange,
-      selected = colors.orange,
-      button = colors.orange,
-      danger = colors.red,
-      warning = colors.yellow,
-      success = colors.lime,
-    },
-  },
-  win10 = {
-    id = "win10",
-    name = "Win10",
-    color = colors.blue,
+  green = {
+    id = "green",
+    name = "Green",
+    color = colors.green,
     values = {
       desktop = colors.black,
       menubar = colors.black,
       dock = colors.black,
       dock_shadow = colors.black,
       window = colors.black,
-      window_title = colors.blue,
+      window_title = colors.black,
       window_inactive = colors.gray,
       surface = colors.gray,
       field = colors.black,
       text = colors.white,
       muted = colors.lightGray,
-      accent = colors.lightBlue,
-      selected = colors.blue,
-      button = colors.blue,
+      accent = colors.green,
+      selected = colors.green,
+      button = colors.green,
       danger = colors.red,
       warning = colors.orange,
       success = colors.lime,
+    },
+  },
+  white = {
+    id = "white",
+    name = "White",
+    color = colors.white,
+    values = {
+      desktop = colors.black,
+      menubar = colors.black,
+      dock = colors.black,
+      dock_shadow = colors.black,
+      window = colors.black,
+      window_title = colors.black,
+      window_inactive = colors.gray,
+      surface = colors.gray,
+      field = colors.black,
+      text = colors.white,
+      muted = colors.lightGray,
+      accent = colors.white,
+      selected = colors.white,
+      button = colors.white,
+      danger = colors.red,
+      warning = colors.orange,
+      success = colors.green,
     },
   },
   dark = {
@@ -135,13 +159,13 @@ local THEME_PRESETS = {
       dock = colors.black,
       dock_shadow = colors.black,
       window = colors.black,
-      window_title = colors.gray,
+      window_title = colors.black,
       window_inactive = colors.gray,
       surface = colors.gray,
       field = colors.black,
       text = colors.white,
       muted = colors.lightGray,
-      accent = colors.cyan,
+      accent = colors.lightGray,
       selected = colors.gray,
       button = colors.gray,
       danger = colors.red,
@@ -149,64 +173,14 @@ local THEME_PRESETS = {
       success = colors.lime,
     },
   },
-  forest = {
-    id = "forest",
-    name = "Forest",
-    color = colors.green,
-    values = {
-      desktop = colors.black,
-      menubar = colors.black,
-      dock = colors.black,
-      dock_shadow = colors.black,
-      window = colors.black,
-      window_title = colors.green,
-      window_inactive = colors.gray,
-      surface = colors.gray,
-      field = colors.black,
-      text = colors.white,
-      muted = colors.lightGray,
-      accent = colors.lime,
-      selected = colors.green,
-      button = colors.green,
-      danger = colors.red,
-      warning = colors.orange,
-      success = colors.lime,
-    },
-  },
-  purple = {
-    id = "purple",
-    name = "Purple",
-    color = colors.purple,
-    values = {
-      desktop = colors.black,
-      menubar = colors.black,
-      dock = colors.black,
-      dock_shadow = colors.black,
-      window = colors.black,
-      window_title = colors.purple,
-      window_inactive = colors.gray,
-      surface = colors.gray,
-      field = colors.black,
-      text = colors.white,
-      muted = colors.lightGray,
-      accent = colors.pink,
-      selected = colors.purple,
-      button = colors.purple,
-      danger = colors.red,
-      warning = colors.orange,
-      success = colors.lime,
-    },
-  },
 }
-
-local THEME_ORDER = { "kyrenia", "linux", "dark", "forest", "purple" }
+local THEME_ORDER = { "blue", "red", "green", "white", "dark" }
 local SETTINGS_TABS = {
   { id = "general", label = "General" },
   { id = "update", label = "Update" },
   { id = "theme", label = "Theme" },
   { id = "time", label = "Time" },
   { id = "devices", label = "Devices" },
-  { id = "privacy", label = "Privacy" },
   { id = "power", label = "Power" },
 }
 
@@ -227,15 +201,15 @@ local APPS = {
 local PINNED = { "launcher", "finder", "store", "luma", "docs", "paint", "blend", "messenger", "settings", "terminal" }
 
 local STORE_APPS = {
-  { id = "docs", name = "Docs", trust = "built-in", popular = true, description = "Write documents and print them." },
-  { id = "paint", name = "Paint", trust = "built-in", popular = true, description = "Draw images on a wide canvas." },
-  { id = "blend", name = "Blend", trust = "built-in", popular = true, description = "Model blocky 3D scenes and preview renders." },
-  { id = "studio", name = "App Studio", trust = "built-in", popular = true, description = "Build apps with code, components, and live preview." },
-  { id = "finder", name = "Files", trust = "built-in", description = "Browse, create, rename, and delete files." },
-  { id = "terminal", name = "Terminal", trust = "built-in", description = "Run DockOS shell commands." },
-  { id = "settings", name = "Settings", trust = "built-in", description = "Themes, display, speakers, printer, security." },
-  { id = "luma", name = "Luma Browser", trust = "built-in", popular = true, description = "Browse Luma pages and create web sites." },
-  { id = "messenger", name = "Dock Messenger", trust = "built-in", popular = true, description = "Local modem chat over Rednet." },
+  { id = "docs", name = "Docs", trust = "built-in", popular = true, description = "Documents and printing." },
+  { id = "paint", name = "Paint", trust = "built-in", popular = true, description = "Canvas drawing." },
+  { id = "blend", name = "Blend", trust = "built-in", popular = true, description = "Simple 3D workspace." },
+  { id = "studio", name = "App Studio", trust = "built-in", popular = true, description = "Build small apps." },
+  { id = "finder", name = "Files", trust = "built-in", description = "File manager." },
+  { id = "terminal", name = "Terminal", trust = "built-in", description = "Command line." },
+  { id = "settings", name = "Settings", trust = "built-in", description = "System settings." },
+  { id = "luma", name = "Luma", trust = "built-in", popular = true, description = "Browser and web editor." },
+  { id = "messenger", name = "Messenger", trust = "built-in", popular = true, description = "Modem messages." },
 }
 
 local state = {
@@ -320,7 +294,7 @@ local state = {
   messenger_modem = nil,
   messenger_messages = {},
   boot_splash_done = false,
-  theme_id = "kyrenia",
+  theme_id = "red",
   wallpaper = nil,
   wallpaper_key = nil,
   wallpaper_error = nil,
@@ -644,10 +618,12 @@ local function current_time_text()
 end
 
 local function apply_theme(theme_id)
-  if theme_id == "win10" then
-    theme_id = "kyrenia"
+  if theme_id == "win10" or theme_id == "kyrenia" or theme_id == "linux" or theme_id == "purple" then
+    theme_id = "red"
+  elseif theme_id == "forest" then
+    theme_id = "green"
   end
-  local preset = THEME_PRESETS[theme_id] or THEME_PRESETS.linux
+  local preset = THEME_PRESETS[theme_id] or THEME_PRESETS.red
   for key, value in pairs(preset.values) do
     THEME[key] = value
   end
@@ -655,7 +631,7 @@ local function apply_theme(theme_id)
 end
 
 local function load_config()
-  apply_theme(state.theme_id or "linux")
+  apply_theme(state.theme_id or "red")
   local config = read_file(CONFIG_PATH)
   if not config then
     return
@@ -671,7 +647,7 @@ local function load_config()
 end
 
 local function save_config()
-  local config = "theme=" .. tostring(state.theme_id or "linux") .. "\n"
+  local config = "theme=" .. tostring(state.theme_id or "red") .. "\n"
     .. "timezone_offset=" .. tostring(normalize_timezone_offset(state.timezone_offset)) .. "\n"
   return write_file(CONFIG_PATH, config)
 end
@@ -1989,9 +1965,9 @@ local function draw_system_menu()
   local left, top, width, height = shell_usable_rect()
   fill(left, top, width, height, colors.black)
   fill(left + 1, top + 1, width - 2, 3, THEME.field)
-  write_at(left + 2, top + 1, "Activities", colors.orange, THEME.field)
+  write_at(left + 2, top + 1, "Apps", colors.white, THEME.field)
   draw_icon_asset(left + 2, top + 2, 3, 1, "search_tile", "?", colors.lightGray, THEME.field)
-  write_at(left + 6, top + 2, trim(state.app_search_query ~= "" and state.app_search_query or "Type to search applications", width - 18), colors.lightGray, THEME.field)
+  write_at(left + 6, top + 2, trim(state.app_search_query ~= "" and state.app_search_query or "Search apps", width - 18), colors.lightGray, THEME.field)
   draw_button("app_search_prompt", left + width - 10, top + 2, "Search", nil, THEME.button)
 
   local apps = {}
@@ -2587,9 +2563,9 @@ local function draw_store(window_state)
   local left, top, width, height = content_rect(window_state)
   fill(left, top, width, height, colors.black)
   fill(left, top, width, 3, THEME.field)
-  write_at(left + 1, top, "Software", colors.orange, THEME.field)
+  write_at(left + 1, top, "Store", colors.white, THEME.field)
   draw_icon_asset(left + 2, top + 1, 3, 1, "search_tile", "?", colors.lightGray, THEME.field)
-  write_at(left + 6, top + 1, trim(state.store_search_query ~= "" and state.store_search_query or "Search packages", width - 18), colors.lightGray, THEME.field)
+  write_at(left + 6, top + 1, trim(state.store_search_query ~= "" and state.store_search_query or "Search apps", width - 18), colors.lightGray, THEME.field)
   draw_button("store_search_prompt", left + width - 10, top + 1, "Search", nil, THEME.button)
 
   local filtered = {}
@@ -2599,14 +2575,13 @@ local function draw_store(window_state)
     end
   end
 
-  write_at(left + 1, top + 4, "Featured", colors.white, colors.black)
   local popular = {}
   for _, store_app in ipairs(filtered) do
     if store_app.popular then
       table.insert(popular, store_app)
     end
   end
-  local card_width = math.max(10, math.min(14, math.floor((width - 4) / 3)))
+  local card_width = math.max(12, math.min(18, math.floor((width - 4) / 3)))
   local card_height = 5
   for index, store_app in ipairs(popular) do
     if index > 3 then
@@ -2617,14 +2592,13 @@ local function draw_store(window_state)
       break
     end
     local app = APPS[store_app.id] or APPS.store
-    fill(card_left, top + 5, card_width, card_height, THEME.surface)
-    draw_app_icon(card_left + 1, top + 6, app, 4, 3, nil, nil)
-    write_at(card_left + 6, top + 6, trim(store_app.name, card_width - 7), colors.white, THEME.surface)
-    write_at(card_left + 6, top + 7, trim(store_app.trust, card_width - 7), trust_color(store_app), THEME.surface)
-    draw_button("store_open", card_left + 1, top + 8, "Open", store_app, colors.purple)
+    fill(card_left, top + 4, card_width, card_height, THEME.surface)
+    draw_app_icon(card_left + 1, top + 5, app, 4, 3, nil, nil)
+    write_at(card_left + 6, top + 5, trim(store_app.name, card_width - 7), colors.white, THEME.surface)
+    write_at(card_left + 6, top + 6, trim(store_app.description, card_width - 7), colors.lightGray, THEME.surface)
+    draw_button("store_open", card_left + 1, top + 7, "Open", store_app, THEME.button)
   end
 
-  write_at(left + 1, top + 9, "Catalog", colors.white, colors.black)
   local row_top = top + 10
   for _, store_app in ipairs(filtered) do
     if row_top + 2 >= top + height then
@@ -2636,9 +2610,9 @@ local function draw_store(window_state)
     draw_app_icon(left + 2, row_top, app, 4, 3, nil, nil)
     write_at(left + 8, row_top, trim(store_app.name, width - 22), colors.white, row_background)
     write_at(left + 8, row_top + 1, trim(store_app.description, width - 22), colors.lightGray, row_background)
-    write_at(left + 8, row_top + 2, string.upper(store_app.trust), trust_color(store_app), row_background)
+    write_at(left + 8, row_top + 2, "Built-in", trust_color(store_app), row_background)
     local installed = store_app.trust == "built-in"
-    draw_button(installed and "store_open" or "store_install", left + width - 11, row_top + 1, installed and "Open" or "Install", store_app, installed and colors.purple or THEME.button)
+    draw_button(installed and "store_open" or "store_install", left + width - 11, row_top + 1, installed and "Open" or "Install", store_app, THEME.button)
     row_top = row_top + 4
   end
 end
@@ -2731,7 +2705,7 @@ local function draw_settings(window_state)
   local tab_top = top + 2
   for _, tab in ipairs(SETTINGS_TABS) do
     local selected = state.settings_tab == tab.id
-    local row_background = selected and THEME.window_title or colors.gray
+    local row_background = selected and THEME.selected or colors.gray
     fill(left + 1, tab_top, tabs_width - 2, 1, row_background)
     write_at(left + 2, tab_top, trim(tab.label, tabs_width - 4), foreground_for_background(row_background), row_background)
     add_hit("settings_tab", left + 1, tab_top, tabs_width - 2, 1, tab.id)
@@ -2741,16 +2715,17 @@ local function draw_settings(window_state)
   local content_left = left + tabs_width + 2
   local content_top = top + 1
   local content_width = width - tabs_width - 3
-  write_at(content_left, content_top, trim(state.settings_message, content_width), colors.cyan, THEME.field)
+  if state.settings_message and state.settings_message ~= "" then
+    write_at(content_left, content_top, trim(state.settings_message, content_width), colors.cyan, THEME.field)
+  end
   if state.settings_tab == "general" then
     write_at(content_left, content_top + 2, "General", colors.white, THEME.field)
-    write_at(content_left, content_top + 4, DISPLAY_VERSION, colors.lightGray, THEME.field)
-    write_at(content_left, content_top + 5, "Screen " .. tostring(state.external.pixel_width) .. "x" .. tostring(state.external.pixel_height), colors.lightGray, THEME.field)
-    write_at(content_left, content_top + 6, "Target 3x6 " .. tostring(TARGET_3X6_WIDTH) .. "x" .. tostring(TARGET_3X6_HEIGHT), colors.lightGray, THEME.field)
-    write_at(content_left, content_top + 7, "Wallpaper " .. (state.wallpaper and "image" or tostring(state.wallpaper_error or "waiting")), colors.lightGray, THEME.field)
-    draw_button("settings_gpu", content_left, content_top + 9, "Rescan display", nil, THEME.button)
+    write_at(content_left, content_top + 4, "Version: " .. DISPLAY_VERSION, colors.lightGray, THEME.field)
+    write_at(content_left, content_top + 5, "Screen: " .. tostring(state.external.pixel_width) .. "x" .. tostring(state.external.pixel_height), colors.lightGray, THEME.field)
+    write_at(content_left, content_top + 6, "Theme: " .. tostring(state.theme_id or "red"), colors.lightGray, THEME.field)
+    draw_button("settings_gpu", content_left, content_top + 8, "Rescan display", nil, THEME.button)
   elseif state.settings_tab == "update" then
-    write_at(content_left, content_top + 2, "Software Update", colors.white, THEME.field)
+    write_at(content_left, content_top + 2, "Update", colors.white, THEME.field)
     write_at(content_left, content_top + 4, "Current: " .. DISPLAY_VERSION, colors.lightGray, THEME.field)
     write_at(content_left, content_top + 5, "Latest: " .. (state.update_latest_version ~= "" and state.update_latest_version or "not checked"), colors.lightGray, THEME.field)
     write_at(content_left, content_top + 7, trim(state.update_status or "Not checked", content_width), state.update_available and colors.orange or colors.lightGray, THEME.field)
@@ -2761,12 +2736,13 @@ local function draw_settings(window_state)
     end
   elseif state.settings_tab == "theme" then
     write_at(content_left, content_top + 2, "Theme", colors.white, THEME.field)
-    write_at(content_left, content_top + 4, "Current: " .. tostring(state.theme_id or "linux"), colors.lightGray, THEME.field)
+    write_at(content_left, content_top + 4, "Current: " .. tostring(state.theme_id or "red"), colors.lightGray, THEME.field)
     local theme_top = content_top + 6
     for _, theme_id in ipairs(THEME_ORDER) do
       local preset = THEME_PRESETS[theme_id]
       if preset then
-        draw_button("theme_set", content_left, theme_top, preset.name, theme_id, preset.color)
+        fill(content_left, theme_top, 2, 1, preset.color)
+        draw_button("theme_set", content_left + 3, theme_top, preset.name, theme_id, state.theme_id == theme_id and THEME.button or colors.gray)
         theme_top = theme_top + 2
       end
     end
@@ -2793,10 +2769,6 @@ local function draw_settings(window_state)
       write_at(content_left + 20, row_top, trim(row.kind, content_width - 21), colors.lightGray, THEME.field)
       row_top = row_top + 1
     end
-  elseif state.settings_tab == "privacy" then
-    write_at(content_left, content_top + 2, "Privacy & Security", colors.white, THEME.field)
-    write_at(content_left, content_top + 4, "DockOS does not collect chat or private data.", colors.lightGray, THEME.field)
-    write_at(content_left, content_top + 5, "App trust is shown in Store before install.", colors.lightGray, THEME.field)
   elseif state.settings_tab == "power" then
     write_at(content_left, content_top + 2, "Power", colors.white, THEME.field)
     local button_left = content_left
@@ -2809,9 +2781,9 @@ local function draw_launcher(window_state)
   local left, top, width, height = content_rect(window_state)
   fill(left, top, width, height, colors.black)
   fill(left + 1, top, width - 2, 3, THEME.field)
-  write_at(left + 2, top, "Applications", colors.orange, THEME.field)
+  write_at(left + 2, top, "Apps", colors.white, THEME.field)
   draw_icon_asset(left + 2, top + 1, 3, 1, "search_tile", "?", colors.lightGray, THEME.field)
-  write_at(left + 6, top + 1, trim(state.app_search_query ~= "" and state.app_search_query or "Search installed apps", width - 18), colors.lightGray, THEME.field)
+  write_at(left + 6, top + 1, trim(state.app_search_query ~= "" and state.app_search_query or "Search apps", width - 18), colors.lightGray, THEME.field)
   draw_button("app_search_prompt", left + width - 10, top + 1, "Search", nil, THEME.button)
   if state.app_search_query ~= "" then
     draw_button("app_search_clear", left + width - 18, top + 1, "Clear", nil, colors.gray)
@@ -3217,8 +3189,7 @@ local function draw_messenger(window_state)
   draw_inline_field(compose_left + 1, list_top + 5, compose_width - 2, "messenger_text", "Type message", colors.black)
   draw_button("messenger_send", compose_left + 1, list_top + 7, "Send", nil, colors.red)
   draw_button("messenger_scan", compose_left + 8, list_top + 7, "Rescan", nil, colors.black)
-  write_at(compose_left + 1, list_top + panel_height - 2, trim("Protocol: " .. MESSENGER_PROTOCOL, compose_width - 2), colors.lightGray, colors.gray)
-  write_at(compose_left + 1, list_top + panel_height - 1, "Enter sends message", colors.lightGray, colors.gray)
+  write_at(compose_left + 1, list_top + panel_height - 1, "Enter to send", colors.lightGray, colors.gray)
 end
 
 local function draw_window_content(window_state)
@@ -4096,7 +4067,6 @@ function handle_action(action, payload, mouse_left, mouse_top)
     state.system_menu_open = false
     set_modal("About DockOS", {
       DISPLAY_VERSION,
-      "Linux-style Tom GPU desktop",
       "Screen " .. tostring(state.external.pixel_width) .. "x" .. tostring(state.external.pixel_height),
     }, {
       { label = "Close", action = "modal_close", color = THEME.button },

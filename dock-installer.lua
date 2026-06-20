@@ -387,12 +387,12 @@ print("Assets: " .. asset_url)
 
 local ok, err = install_files(source_url, asset_url)
 if not ok then
-  print("ERR Install failed: " .. tostring(err))
+  print("Install failed: " .. tostring(err))
   return
 end
 
 install_startup()
 append_shell_path("/bin")
 
-print("OK DockOS installed")
+print("DockOS installed")
 print("Run: dock")
