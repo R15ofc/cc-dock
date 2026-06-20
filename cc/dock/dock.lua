@@ -1005,7 +1005,7 @@ function luma_find_site(value)
   local address = luma_normalize_address(value)
   for _, site in ipairs(state.luma_sites or {}) do
     local domain = luma_normalize_address(luma_site_domain(site))
-    if address == domain or address == site.slug or contains_text(tostring(site.name or "") .. " " .. domain, address) then
+    if address == domain or address == luma_normalize_address(site.slug) then
       return site, domain
     end
   end
@@ -1400,6 +1400,21 @@ local function toggle_fullscreen(window_state)
     window_state.fullscreen = true
     window_state.minimized = false
   end
+end
+
+function begin_window_drag(window_id, mouse_left, mouse_top)
+  local window_state = state.windows[window_id]
+  if not window_state or window_state.fullscreen then
+    return
+  end
+  state.dragging_window = {
+    id = window_id,
+    start_left = window_state.left,
+    start_top = window_state.top,
+    mouse_left = mouse_left,
+    mouse_top = mouse_top,
+  }
+  bring_to_front(window_id)
 end
 
 local open_app
@@ -1901,24 +1916,20 @@ end
 
 local function draw_window_frame(window_state)
   local active = state.active_window == window_state.id
-  local app = window_state.app and APPS[window_state.app] or nil
   local title_color = active and THEME.window_title or THEME.window_inactive
   local title_foreground = active and colors.white or colors.lightGray
   local title_height = window_title_height(window_state)
   fill(window_state.left, window_state.top, window_state.width, window_state.height, THEME.window)
   fill(window_state.left, window_state.top, window_state.width, title_height, title_color)
   add_hit("window_focus", window_state.left, window_state.top, window_state.width, window_state.height, window_state.id)
-  if app then
-    draw_icon_asset(window_state.left + 1, window_state.top, 3, 1, app.icon_asset, app.icon, title_foreground, title_color)
-  end
-  local controls_left = math.max(window_state.left + 1, window_state.left + window_state.width - 6)
-  write_at(window_state.left + 5, window_state.top, trim(window_state.title, math.max(1, controls_left - window_state.left - 6)), title_foreground, title_color)
-  fill(controls_left, window_state.top, 1, 1, colors.yellow)
-  fill(controls_left + 2, window_state.top, 1, 1, colors.lime)
-  fill(controls_left + 4, window_state.top, 1, 1, colors.red)
+  local controls_left = math.max(window_state.left + 1, window_state.left + window_state.width - 8)
+  write_at(window_state.left + 1, window_state.top, trim(window_state.title, math.max(1, controls_left - window_state.left - 2)), title_foreground, title_color)
+  write_at(controls_left, window_state.top, "-", colors.lightGray, title_color)
+  write_at(controls_left + 3, window_state.top, window_state.fullscreen and "<>" or "[]", colors.lightGray, title_color)
+  write_at(controls_left + 6, window_state.top, "x", colors.white, THEME.danger)
   add_hit("window_minimize", controls_left, window_state.top, 1, 1, window_state.id)
-  add_hit("window_fullscreen", controls_left + 2, window_state.top, 1, 1, window_state.id)
-  add_hit("window_close", controls_left + 4, window_state.top, 1, 1, window_state.id)
+  add_hit("window_fullscreen", controls_left + 3, window_state.top, 2, 1, window_state.id)
+  add_hit("window_close", controls_left + 6, window_state.top, 1, 1, window_state.id)
   add_hit("window_drag", window_state.left, window_state.top, math.max(1, controls_left - window_state.left), title_height, window_state.id)
 end
 
@@ -2626,36 +2637,31 @@ local function draw_terminal(window_state)
 end
 
 function draw_luma_tabs(left, top, width)
-  fill(left, top, width, 1, colors.black)
+  fill(left, top, width, 1, colors.gray)
   local tab_left = left + 1
   for index, tab in ipairs(state.luma_tabs or {}) do
-    if index > 4 or tab_left + 11 >= left + width then
+    if index > 5 or tab_left + 9 >= left + width then
       break
     end
     local active = index == state.luma_active_tab
-    local background = active and colors.gray or colors.black
-    fill(tab_left, top, 11, 1, background)
-    write_at(tab_left + 1, top, trim(tab.title or "Tab", 8), active and colors.white or colors.lightGray, background)
-    write_at(tab_left + 9, top, "x", colors.lightGray, background)
-    add_hit("luma_tab_select", tab_left, top, 9, 1, index)
-    add_hit("luma_tab_close", tab_left + 9, top, 1, 1, index)
-    tab_left = tab_left + 12
+    local background = active and colors.lightGray or colors.gray
+    fill(tab_left, top, 9, 1, background)
+    write_at(tab_left + 1, top, trim(tab.title or "Tab", 6), active and colors.black or colors.white, background)
+    write_at(tab_left + 7, top, "x", active and colors.gray or colors.lightGray, background)
+    add_hit("luma_tab_select", tab_left, top, 7, 1, index)
+    add_hit("luma_tab_close", tab_left + 7, top, 1, 1, index)
+    tab_left = tab_left + 10
   end
-  draw_button("luma_new_tab", math.min(left + width - 4, tab_left), top, "+", nil, colors.gray)
+  draw_button("luma_new_tab", math.min(left + width - 4, tab_left), top, "+", nil, colors.lightGray)
 end
 
 function draw_luma_toolbar(left, top, width)
-  fill(left, top, width, 2, colors.gray)
+  fill(left, top, width, 1, colors.lightGray)
   draw_button("luma_back", left + 1, top, "<", nil, colors.gray)
-  draw_button("luma_home", left + 4, top, "H", nil, colors.gray)
+  draw_button("luma_home", left + 4, top, "^", nil, colors.gray)
   draw_button("luma_reload", left + 7, top, "R", nil, colors.gray)
-  draw_inline_field(left + 10, top, math.max(12, width - 22), "luma_query", "Anything you Imagine", colors.black)
-  write_at(left + width - 10, top, "[S]", colors.orange, colors.gray)
-  draw_button("luma_creator", left + width - 6, top, "+Web", nil, colors.purple)
-  fill(left, top + 1, width, 1, colors.black)
-  write_at(left + 2, top + 1, "Creator", colors.lightGray, colors.black)
-  add_hit("luma_creator", left + 2, top + 1, 7, 1, nil)
-  write_at(left + 11, top + 1, luma_domain(state.luma_creator_slug, state.luma_creator_tld), colors.lightGray, colors.black)
+  draw_inline_field(left + 10, top, math.max(12, width - 18), "luma_query", "Search or enter address", colors.black)
+  draw_button("luma_creator", left + width - 6, top, "Web", nil, colors.purple)
 end
 
 function draw_luma_site_preview(left, top, width, height, site)
@@ -2687,17 +2693,16 @@ function draw_luma_creator(left, top, width, height)
   fill(left, top, width, 1, colors.purple)
   write_at(left + 1, top, "Luma Web Creator", colors.white, colors.purple)
   draw_button("luma_publish", left + width - 10, top, "Publish", nil, colors.orange)
-  local edit_width = math.min(30, math.max(20, math.floor(width * 0.48)))
+  local edit_width = math.min(28, math.max(18, math.floor(width * 0.46)))
   local preview_left = left + edit_width + 1
   local preview_width = math.max(12, width - edit_width - 1)
   fill(left, top + 1, edit_width, height - 1, THEME.field)
-  write_at(left + 1, top + 1, "Name", colors.orange, THEME.field)
+  write_at(left + 1, top + 1, "Site name", colors.orange, THEME.field)
   draw_inline_field(left + 1, top + 2, edit_width - 2, "luma_creator_name", "RoadRover Official Site", colors.black)
-  write_at(left + 1, top + 3, "Username", colors.orange, THEME.field)
+  write_at(left + 1, top + 3, "Username / domain", colors.orange, THEME.field)
   draw_inline_field(left + 1, top + 4, edit_width - 2, "luma_creator_slug", "roadrover-official-site", colors.black)
-  write_at(left + 1, top + 5, trim(luma_domain(state.luma_creator_slug, state.luma_creator_tld), edit_width - 2), colors.lightGray, THEME.field)
   local tld_left = left + 1
-  local tld_top = top + 6
+  local tld_top = top + 5
   for _, tld in ipairs(state.luma_tlds or {}) do
     if tld_left + #tld + 2 >= left + edit_width then
       tld_left = left + 1
@@ -2708,13 +2713,12 @@ function draw_luma_creator(left, top, width, height)
     end
     tld_left = tld_left + draw_button("luma_tld", tld_left, tld_top, tld, tld, tld == state.luma_creator_tld and colors.orange or colors.gray)
   end
-  write_at(left + 1, top + 9, "Hero", colors.orange, THEME.field)
-  draw_inline_field(left + 1, top + 10, edit_width - 2, "luma_creator_title", "Headline", colors.black)
-  write_at(left + 1, top + 11, "Body", colors.orange, THEME.field)
-  draw_inline_field(left + 1, top + 12, edit_width - 2, "luma_creator_body", "Page text", colors.black)
-  draw_button("luma_add_heading", left + 1, top + 14, "Heading", nil, colors.purple)
-  draw_button("luma_add_text", left + 10, top + 14, "Text", nil, colors.purple)
-  draw_button("luma_clear", left + 17, top + 14, "Clear", nil, colors.gray)
+  write_at(left + 1, top + 7, trim(luma_domain(state.luma_creator_slug, state.luma_creator_tld), edit_width - 2), colors.lightGray, THEME.field)
+  draw_inline_field(left + 1, top + 8, edit_width - 2, "luma_creator_title", "Headline", colors.black)
+  draw_inline_field(left + 1, top + 9, edit_width - 2, "luma_creator_body", "Page text", colors.black)
+  draw_button("luma_add_heading", left + 1, top + 10, "Heading", nil, colors.purple)
+  draw_button("luma_add_text", left + 10, top + 10, "Text", nil, colors.purple)
+  draw_button("luma_clear", left + 17, top + 10, "Clear", nil, colors.gray)
 
   draw_luma_site_preview(preview_left, top + 1, preview_width, height - 1, {
     name = state.luma_creator_name,
@@ -2728,9 +2732,9 @@ end
 
 function draw_luma_search(left, top, width, height)
   fill(left, top, width, height, colors.white)
-  write_at(left + 2, top + 1, "Search results", colors.black, colors.white)
-  write_at(left + 17, top + 1, trim(state.luma_query, math.max(1, width - 20)), colors.gray, colors.white)
-  local row_top = top + 3
+  write_at(left + 2, top, "Search results", colors.black, colors.white)
+  write_at(left + 17, top, trim(state.luma_query, math.max(1, width - 20)), colors.gray, colors.white)
+  local row_top = top + 2
   fill(left + 2, row_top, width - 4, 3, colors.lightGray)
   write_at(left + 4, row_top, "Luma Web Creator", colors.black, colors.lightGray)
   write_at(left + 4, row_top + 1, "Create and publish a Luma site.", colors.gray, colors.lightGray)
@@ -2751,21 +2755,21 @@ end
 function draw_luma_home(left, top, width, height)
   fill(left, top, width, height, colors.black)
   local logo_left = left + math.max(1, math.floor(width / 2) - 3)
-  write_at(logo_left, top + 2, "Luma", colors.purple, colors.black)
-  write_at(left + math.max(2, math.floor(width / 2) - 10), top + 4, "Anything you Imagine", colors.lightGray, colors.black)
+  write_at(logo_left, top + 1, "Luma", colors.purple, colors.black)
+  write_at(left + math.max(2, math.floor(width / 2) - 10), top + 2, "Anything you Imagine", colors.lightGray, colors.black)
   local search_width = math.min(42, math.max(16, width - 10))
   local search_left = left + math.max(2, math.floor((width - search_width) / 2))
-  draw_inline_field(search_left, top + 6, search_width, "luma_query", "Anything you Imagine", colors.gray)
-  draw_button("luma_search", search_left + search_width - 5, top + 8, "Go", nil, colors.purple)
-  write_at(left + 2, top + 11, "Pinned", colors.lightGray, colors.black)
-  draw_app_icon(left + 2, top + 12, APPS.luma, 4, 3, "luma_creator", nil)
-  draw_app_icon(left + 8, top + 12, APPS.studio, 4, 3, "dock_pinned", "studio")
-  draw_app_icon(left + 14, top + 12, APPS.store, 4, 3, "dock_pinned", "store")
+  draw_inline_field(search_left, top + 4, search_width, "luma_query", "Anything you Imagine", colors.gray)
+  draw_button("luma_search", search_left + search_width - 5, top + 5, "Go", nil, colors.purple)
+  write_at(left + 2, top + 7, "Pinned", colors.lightGray, colors.black)
+  draw_app_icon(left + 2, top + 8, APPS.luma, 4, 3, "luma_creator", nil)
+  draw_app_icon(left + 8, top + 8, APPS.studio, 4, 3, "dock_pinned", "studio")
+  draw_app_icon(left + 14, top + 8, APPS.store, 4, 3, "dock_pinned", "store")
   local site = state.luma_sites and state.luma_sites[1]
   if site then
-    fill(left + 21, top + 12, 4, 3, colors.orange)
-    write_at(left + 22, top + 13, "RR", colors.black, colors.orange)
-    add_hit("luma_open_site", left + 21, top + 12, 4, 3, luma_site_domain(site))
+    fill(left + 21, top + 8, 4, 3, colors.orange)
+    write_at(left + 22, top + 9, "RR", colors.black, colors.orange)
+    add_hit("luma_open_site", left + 21, top + 8, 4, 3, luma_site_domain(site))
   end
 end
 
@@ -2777,8 +2781,8 @@ function draw_luma(window_state)
   end
   draw_luma_tabs(left, top, width)
   draw_luma_toolbar(left, top + 1, width)
-  local content_top = top + 3
-  local content_height = math.max(1, height - 3)
+  local content_top = top + 2
+  local content_height = math.max(1, height - 2)
   if tab.page == "creator" then
     draw_luma_creator(left, content_top, width, content_height)
   elseif tab.page == "site" and tab.site then
@@ -3257,13 +3261,18 @@ local TINY_FONT = {
   ["9"] = { "111", "101", "111", "001", "111" },
   [":"] = { "000", "010", "000", "010", "000" },
   ["A"] = { "010", "101", "111", "101", "101" },
+  ["C"] = { "111", "100", "100", "100", "111" },
   ["D"] = { "110", "101", "101", "101", "110" },
   ["K"] = { "101", "110", "100", "110", "101" },
   ["M"] = { "101", "111", "111", "101", "101" },
   ["O"] = { "111", "101", "101", "101", "111" },
   ["P"] = { "110", "101", "110", "100", "100" },
   ["S"] = { "111", "100", "111", "001", "111" },
+  ["T"] = { "111", "010", "010", "010", "010" },
+  ["U"] = { "101", "101", "101", "101", "111" },
   ["Y"] = { "101", "101", "010", "010", "010" },
+  ["+"] = { "000", "010", "111", "010", "000" },
+  ["-"] = { "000", "000", "111", "000", "000" },
   [" "] = { "000", "000", "000", "000", "000" },
 }
 
@@ -3763,6 +3772,10 @@ function handle_action(action, payload, mouse_left, mouse_top)
     state.dragging_dock_app = nil
   elseif action == "window_focus" then
     bring_to_front(payload)
+    local window_state = state.windows[payload]
+    if window_state and mouse_top and mouse_top <= window_state.top + window_title_height(window_state) - 1 then
+      begin_window_drag(payload, mouse_left, mouse_top)
+    end
   elseif action == "window_close" then
     close_window(payload)
   elseif action == "window_minimize" then
@@ -3774,17 +3787,7 @@ function handle_action(action, payload, mouse_left, mouse_top)
       bring_to_front(payload)
     end
   elseif action == "window_drag" then
-    local window_state = state.windows[payload]
-    if window_state and not window_state.fullscreen then
-      state.dragging_window = {
-        id = payload,
-        start_left = window_state.left,
-        start_top = window_state.top,
-        mouse_left = mouse_left,
-        mouse_top = mouse_top,
-      }
-      bring_to_front(payload)
-    end
+    begin_window_drag(payload, mouse_left, mouse_top)
   elseif action == "blend_mode_layout" then
     state.blend_mode = "Layout"
   elseif action == "blend_mode_model" then
@@ -4033,8 +4036,14 @@ function run_loop()
       if hitbox and (not state.input or hitbox.id == "input_ok" or hitbox.id == "input_cancel") then
         handle_action(hitbox.id, hitbox.payload, second, third)
       end
-    elseif event == "mouse_drag" and state.dragging_window then
-      local window_state = state.windows[state.dragging_window.id]
+    elseif event == "mouse_drag" then
+      if not state.dragging_window then
+        local hitbox = hit_at(second, third)
+        if hitbox and (hitbox.id == "window_drag" or hitbox.id == "window_focus") then
+          begin_window_drag(hitbox.payload, second, third)
+        end
+      end
+      local window_state = state.dragging_window and state.windows[state.dragging_window.id]
       if window_state then
         local screen_width, screen_height = screen_size()
         local shell_left = shell_left_cell()
