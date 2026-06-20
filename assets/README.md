@@ -1,7 +1,0 @@
-- `wallpaper-160x144.png` - for `1x2`
-- `wallpaper-320x216.png` - for `2x3`
-- `wallpaper-320x288.png` - for `2x4`
-- `wallpaper-382x192.png` - other sizes
-- `wallpaper-384x192.png` - for `3x6`
-- `wallpaper-480x432.png` - oversized for `3x6`
-- `wallpaper-640x576.png` - for `4x8`
