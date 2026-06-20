@@ -1,4 +1,4 @@
-local VERSION = "1.3.0"
+local VERSION = "1.3.1"
 local RELEASE_NAME = "Kyrenia"
 local DISPLAY_VERSION = "DockOS " .. RELEASE_NAME .. " " .. VERSION
 local DOCS_DIR = "/dock/documents"
@@ -26,11 +26,11 @@ local CELL_HEIGHT = 9
 local PERIPHERAL_SCAN_SECONDS = 1
 local TARGET_3X6_WIDTH = 384
 local TARGET_3X6_HEIGHT = 192
-local DOCK_LEFT_PIXELS = 28
-local DOCK_BOTTOM_PIXELS = 24
-local DOCK_BUTTON_PIXELS = 18
-local DOCK_ICON_PIXELS = 18
-local DOCK_GAP_PIXELS = 5
+local DOCK_LEFT_PIXELS = 34
+local DOCK_BOTTOM_PIXELS = 32
+local DOCK_BUTTON_PIXELS = 24
+local DOCK_ICON_PIXELS = 24
+local DOCK_GAP_PIXELS = 6
 
 local THEME = {
   desktop = colors.black,
@@ -2031,10 +2031,8 @@ local function draw_system_menu()
 end
 
 local function draw_desktop()
-end
-
-local function dock_width()
-  return (#PINNED * 5) + 3 + (#state.open_dock_order * 5)
+  local shell_left, shell_top, usable_width, usable_height = shell_usable_rect()
+  add_hit("desktop_focus", shell_left, shell_top, usable_width, usable_height, nil)
 end
 
 local function is_pinned(app_id)
@@ -2046,11 +2044,22 @@ local function is_pinned(app_id)
   return false
 end
 
+local function draw_pixel_app_tile(left, top, app, background, active)
+  local tile_background = background or (app and app.color) or colors.red
+  pixel_fill(left, top, DOCK_BUTTON_PIXELS, DOCK_BUTTON_PIXELS, tile_background)
+  if app then
+    pixel_icon(left, top, DOCK_ICON_PIXELS, DOCK_ICON_PIXELS, app.icon_asset, app.icon, nil, colors.white)
+  end
+  if active then
+    pixel_fill(left, top + DOCK_BUTTON_PIXELS - 3, DOCK_BUTTON_PIXELS, 3, colors.white)
+  end
+end
+
 local function draw_dock()
   local screen_width, screen_height = screen_size()
   local pixel_width = state.external.pixel_width or (screen_width * state.external.cell_width)
   local pixel_height = state.external.pixel_height or (screen_height * state.external.cell_height)
-  local bottom_height = math.max(DOCK_BOTTOM_PIXELS, math.floor(pixel_height * 0.10))
+  local bottom_height = DOCK_BOTTOM_PIXELS
   local bottom_top = math.max(1, pixel_height - bottom_height + 1)
 
   if state.headless then
@@ -2065,29 +2074,20 @@ local function draw_dock()
       local app = APPS[item.app]
       local icon_left = 4
       local icon_top = 4 + (index - 1) * (DOCK_BUTTON_PIXELS + DOCK_GAP_PIXELS)
-      pixel_fill(icon_left, icon_top, DOCK_BUTTON_PIXELS, DOCK_BUTTON_PIXELS, item.color)
-      if app and DOCK_ICON_PIXELS >= 24 then
-        pixel_icon(5 + math.floor((DOCK_BUTTON_PIXELS - DOCK_ICON_PIXELS) / 2), icon_top + math.floor((DOCK_BUTTON_PIXELS - DOCK_ICON_PIXELS) / 2), DOCK_ICON_PIXELS, DOCK_ICON_PIXELS, app.icon_asset, app.icon, nil, colors.white)
-      end
+      draw_pixel_app_tile(icon_left, icon_top, app, item.color, is_open_dock_app(item.app))
       local hit_top = math.max(1, math.floor((icon_top - 1) / state.external.cell_height) + 1)
       add_hit(item.action, 1, hit_top, shell_left_cell() - 1, math.max(3, ceil_div(DOCK_BUTTON_PIXELS, state.external.cell_height)), item.app)
     end
 
     pixel_fill(1, bottom_top, pixel_width, bottom_height, colors.black)
-    local icon_left = 5
+    local icon_left = 6
     local icon_top = bottom_top + math.floor((bottom_height - DOCK_BUTTON_PIXELS) / 2)
     for _, app_id in ipairs(PINNED) do
       local app = APPS[app_id]
-      if icon_left + DOCK_BUTTON_PIXELS >= pixel_width - 86 then
+      if icon_left + DOCK_BUTTON_PIXELS >= pixel_width - 92 then
         break
       end
-      pixel_fill(icon_left, icon_top, DOCK_BUTTON_PIXELS, DOCK_BUTTON_PIXELS, colors.red)
-      if app and DOCK_ICON_PIXELS >= 24 then
-        pixel_icon(icon_left + math.floor((DOCK_BUTTON_PIXELS - DOCK_ICON_PIXELS) / 2), icon_top + math.floor((DOCK_BUTTON_PIXELS - DOCK_ICON_PIXELS) / 2), DOCK_ICON_PIXELS, DOCK_ICON_PIXELS, app.icon_asset, app.icon, nil, colors.white)
-      end
-      if is_open_dock_app(app_id) then
-        pixel_fill(icon_left, icon_top + DOCK_BUTTON_PIXELS - 2, DOCK_BUTTON_PIXELS, 2, colors.white)
-      end
+      draw_pixel_app_tile(icon_left, icon_top, app, app and app.color or colors.red, is_open_dock_app(app_id))
       local hit_left = math.max(1, math.floor((icon_left - 1) / state.external.cell_width) + 1)
       local hit_top = math.max(1, math.floor((icon_top - 1) / state.external.cell_height) + 1)
       add_hit("dock_pinned", hit_left, hit_top, ceil_div(DOCK_BUTTON_PIXELS, state.external.cell_width), ceil_div(DOCK_BUTTON_PIXELS, state.external.cell_height), app_id)
@@ -2096,11 +2096,8 @@ local function draw_dock()
     local open_left = icon_left + 4
     for _, app_id in ipairs(state.open_dock_order) do
       local app = APPS[app_id]
-      if not is_pinned(app_id) and open_left + DOCK_BUTTON_PIXELS < pixel_width - 86 then
-        pixel_fill(open_left, icon_top, DOCK_BUTTON_PIXELS, DOCK_BUTTON_PIXELS, app and app.color or colors.red)
-        if app and DOCK_ICON_PIXELS >= 24 then
-          pixel_icon(open_left + math.floor((DOCK_BUTTON_PIXELS - DOCK_ICON_PIXELS) / 2), icon_top + math.floor((DOCK_BUTTON_PIXELS - DOCK_ICON_PIXELS) / 2), DOCK_ICON_PIXELS, DOCK_ICON_PIXELS, app.icon_asset, app.icon, nil, colors.white)
-        end
+      if not is_pinned(app_id) and open_left + DOCK_BUTTON_PIXELS < pixel_width - 92 then
+        draw_pixel_app_tile(open_left, icon_top, app, app and app.color or colors.red, true)
         local hit_left = math.max(1, math.floor((open_left - 1) / state.external.cell_width) + 1)
         local hit_top = math.max(1, math.floor((icon_top - 1) / state.external.cell_height) + 1)
         add_hit("dock_open", hit_left, hit_top, ceil_div(DOCK_BUTTON_PIXELS, state.external.cell_width), ceil_div(DOCK_BUTTON_PIXELS, state.external.cell_height), app_id)
@@ -2112,15 +2109,17 @@ local function draw_dock()
     local status_width = tiny_text_width(status, 1)
     pixel_tiny_text(math.max(1, pixel_width - status_width - 8), bottom_top + math.floor((bottom_height - 5) / 2), status, colors.white, 1)
   else
-    local bottom_row = screen_height
-    fill(1, bottom_row, screen_width, 1, colors.black)
+    local bottom_row = math.max(1, screen_height - 1)
+    fill(1, bottom_row, screen_width, 2, colors.black)
     local icon_left = 1
     for _, app_id in ipairs(PINNED) do
-      if icon_left + 1 >= screen_width - 12 then
+      if icon_left + 2 >= screen_width - 12 then
         break
       end
-      fill(icon_left, bottom_row, 1, 1, colors.red)
-      add_hit("dock_pinned", icon_left, bottom_row, 1, 1, app_id)
+      local app = APPS[app_id]
+      fill(icon_left, bottom_row, 2, 2, app and app.color or colors.red)
+      write_at(icon_left, bottom_row, trim(app and app.icon or "", 2), foreground_for_background(app and app.color or colors.red), app and app.color or colors.red)
+      add_hit("dock_pinned", icon_left, bottom_row, 2, 2, app_id)
       icon_left = icon_left + 3
     end
     local status = current_time_text()
@@ -2140,10 +2139,16 @@ local function draw_window_frame(window_state)
   local title_color = active and colors.black or THEME.window_inactive
   local title_foreground = active and colors.white or colors.lightGray
   local title_height = window_title_height(window_state)
+  local border_color = active and colors.gray or colors.black
   fill(window_state.left, window_state.top, window_state.width, window_state.height, THEME.window)
   fill(window_state.left, window_state.top, window_state.width, title_height, title_color)
   if title_height > 1 then
     fill(window_state.left, window_state.top + title_height - 1, window_state.width, 1, active and THEME.accent or colors.gray)
+  end
+  if not window_state.fullscreen then
+    fill(window_state.left, window_state.top + title_height, 1, window_state.height - title_height, border_color)
+    fill(window_state.left + window_state.width - 1, window_state.top + title_height, 1, window_state.height - title_height, border_color)
+    fill(window_state.left, window_state.top + window_state.height - 1, window_state.width, 1, border_color)
   end
   add_hit("window_focus", window_state.left, window_state.top, window_state.width, window_state.height, window_state.id)
   local controls_left = math.max(window_state.left + 1, window_state.left + window_state.width - 8)
@@ -2171,6 +2176,7 @@ local function selected_file_entry()
       path = state.file_selected,
       name = basename(state.file_selected),
       dir = fs.isDir(state.file_selected),
+      size = fs.isDir(state.file_selected) and 0 or (fs.getSize(state.file_selected) or 0),
     }
   end
   state.file_selected = nil
@@ -2248,55 +2254,101 @@ end
 
 local function draw_finder(window_state)
   local left, top, width, height = content_rect(window_state)
-  local toolbar_top = top
-  local cursor_left = left + 1
-  cursor_left = cursor_left + draw_button("file_back", cursor_left, toolbar_top, "<", nil, colors.gray) + 1
-  cursor_left = cursor_left + draw_button("file_new_folder", cursor_left, toolbar_top, "Folder", nil, THEME.button) + 1
-  cursor_left = cursor_left + draw_button("file_new_file", cursor_left, toolbar_top, "File", nil, THEME.button) + 1
-  cursor_left = cursor_left + draw_button("file_rename", cursor_left, toolbar_top, "Rename", nil, colors.gray) + 1
-  cursor_left = cursor_left + draw_button("file_delete", cursor_left, toolbar_top, "Delete", nil, THEME.danger) + 1
-  draw_button("file_open", cursor_left, toolbar_top, "Open", nil, colors.purple)
+  fill(left, top, width, height, colors.black)
+  fill(left, top, width, 3, colors.gray)
+  write_at(left + 1, top, "Files", colors.white, colors.gray)
+  local toolbar_left = left + math.max(8, width - 43)
+  toolbar_left = toolbar_left + draw_button("file_back", toolbar_left, top, "<", nil, colors.black) + 1
+  toolbar_left = toolbar_left + draw_button("file_new_folder", toolbar_left, top, "Folder", nil, THEME.button) + 1
+  toolbar_left = toolbar_left + draw_button("file_new_file", toolbar_left, top, "File", nil, THEME.button) + 1
+  toolbar_left = toolbar_left + draw_button("file_open", toolbar_left, top, "Open", nil, colors.blue) + 1
+  toolbar_left = toolbar_left + draw_button("file_rename", toolbar_left, top, "Rename", nil, colors.black) + 1
+  draw_button("file_delete", toolbar_left, top, "Delete", nil, THEME.danger)
+  fill(left + 1, top + 1, width - 2, 1, THEME.field)
+  write_at(left + 2, top + 1, trim(state.file_path, width - 4), colors.lightGray, THEME.field)
 
-  write_at(left + 1, top + 2, trim(state.file_path, width - 2), colors.cyan, THEME.window)
-  local list_left = left + 1
-  local list_top = top + 4
-  local list_width = math.max(24, math.floor(width * 0.58))
-  local preview_left = list_left + list_width + 2
-  local preview_width = width - list_width - 4
-  local visible_rows = height - 5
-  fill(list_left, list_top, list_width, visible_rows + 1, THEME.field)
-  fill(preview_left, list_top, preview_width, visible_rows + 1, THEME.field)
-  write_at(list_left + 1, list_top, pad("Name", list_width - 14) .. "Kind  Size", colors.lightGray, THEME.field)
+  local content_top = top + 3
+  local content_height = math.max(4, height - 3)
+  local sidebar_width = math.min(18, math.max(13, math.floor(width * 0.22)))
+  local preview_width = math.min(24, math.max(16, math.floor(width * 0.28)))
+  if width < 56 then
+    preview_width = 0
+  end
+  local list_left = left + sidebar_width + 2
+  local list_width = width - sidebar_width - preview_width - 4
+  local preview_left = list_left + list_width + 1
 
+  fill(left, content_top, sidebar_width, content_height, colors.gray)
+  fill(list_left, content_top, list_width, content_height, THEME.field)
+  if preview_width > 0 then
+    fill(preview_left, content_top, preview_width, content_height, colors.gray)
+  end
+
+  write_at(left + 1, content_top, "Places", colors.white, colors.gray)
+  local places = {
+    { label = "Root", path = "/" },
+    { label = "Dock", path = "/dock" },
+    { label = "Docs", path = DOCS_DIR },
+    { label = "Paint", path = PAINT_DIR },
+    { label = "Bin", path = "/bin" },
+  }
+  for index, place in ipairs(places) do
+    local place_top = content_top + 1 + index
+    if place_top >= content_top + content_height then
+      break
+    end
+    local selected = state.file_path == place.path
+    local row_background = selected and THEME.selected or colors.gray
+    fill(left + 1, place_top, sidebar_width - 2, 1, row_background)
+    write_at(left + 2, place_top, trim(place.label, sidebar_width - 4), foreground_for_background(row_background), row_background)
+    add_hit("file_sidebar", left + 1, place_top, sidebar_width - 2, 1, place.path)
+  end
+
+  write_at(list_left + 1, content_top, pad("Name", math.max(4, list_width - 16)) .. "Kind  Size", colors.lightGray, THEME.field)
   local entries = list_dir(state.file_path)
+  local visible_rows = math.max(1, content_height - 1)
   for row_index = 1, visible_rows do
     local entry = entries[row_index + state.file_scroll]
     if not entry then
+      if row_index == 1 then
+        write_at(list_left + 1, content_top + 1, "This folder is empty.", colors.lightGray, THEME.field)
+      end
       break
     end
-    local row_top = list_top + row_index
+    local row_top = content_top + row_index
     local selected = state.file_selected == entry.path
     local row_background = selected and THEME.selected or (row_index % 2 == 0 and colors.black or colors.gray)
+    local name_width = math.max(4, list_width - 16)
     fill(list_left, row_top, list_width, 1, row_background)
-    write_at(list_left + 1, row_top, pad(entry.name, list_width - 14), entry.dir and colors.cyan or colors.white, row_background)
+    write_at(list_left + 1, row_top, entry.dir and "D" or "F", entry.dir and colors.cyan or colors.white, row_background)
+    write_at(list_left + 3, row_top, pad(entry.name, name_width - 2), entry.dir and colors.cyan or colors.white, row_background)
     write_at(list_left + list_width - 12, row_top, entry.dir and "DIR " or "FILE", colors.lightGray, row_background)
     write_at(list_left + list_width - 6, row_top, trim(entry.size, 5), colors.lightGray, row_background)
     add_hit("file_select", list_left, row_top, list_width, 1, entry.path)
   end
 
-  local entry = selected_file_entry()
-  if entry then
-    write_at(preview_left + 1, list_top, trim(entry.name, preview_width - 2), colors.white, THEME.field)
-    write_at(preview_left + 1, list_top + 1, entry.dir and "Folder" or "File", colors.lightGray, THEME.field)
-    if state.file_preview and not entry.dir then
-      local preview_top = list_top + 3
-      for line in (state.file_preview .. "\n"):gmatch("(.-)\n") do
-        if preview_top >= list_top + visible_rows then
-          break
+  if preview_width > 0 then
+    local entry = selected_file_entry()
+    write_at(preview_left + 1, content_top, "Preview", colors.white, colors.gray)
+    if entry then
+      fill(preview_left + 1, content_top + 2, preview_width - 2, 4, THEME.field)
+      write_at(preview_left + 2, content_top + 2, trim(entry.name, preview_width - 4), colors.white, THEME.field)
+      write_at(preview_left + 2, content_top + 3, entry.dir and "Folder" or "File", colors.lightGray, THEME.field)
+      write_at(preview_left + 2, content_top + 4, tostring(entry.size or 0) .. " bytes", colors.lightGray, THEME.field)
+      local preview_top = content_top + 7
+      if state.file_preview and not entry.dir then
+        for line in (state.file_preview .. "\n"):gmatch("(.-)\n") do
+          if preview_top >= content_top + content_height - 1 then
+            break
+          end
+          write_at(preview_left + 1, preview_top, trim(line, preview_width - 2), colors.white, colors.gray)
+          preview_top = preview_top + 1
         end
-        write_at(preview_left + 1, preview_top, trim(line, preview_width - 2), colors.lightGray, THEME.field)
-        preview_top = preview_top + 1
+      else
+        write_at(preview_left + 1, preview_top, entry.dir and "Open to browse." or "Open to preview.", colors.lightGray, colors.gray)
       end
+    else
+      write_at(preview_left + 1, content_top + 2, "Select a file.", colors.lightGray, colors.gray)
     end
   end
 end
@@ -4024,6 +4076,9 @@ function handle_action(action, payload, mouse_left, mouse_top)
   elseif action == "system_open" then
     state.system_menu_open = false
     open_app(payload)
+  elseif action == "desktop_focus" then
+    state.system_menu_open = false
+    state.active_window = nil
   elseif action == "app_search_prompt" then
     state.system_menu_open = false
     open_app("launcher")
@@ -4151,6 +4206,16 @@ function handle_action(action, payload, mouse_left, mouse_top)
     state.file_selected = nil
     state.file_scroll = 0
     state.file_preview = nil
+  elseif action == "file_sidebar" then
+    if payload and not fs.exists(payload) and (payload == DOCS_DIR or payload == PAINT_DIR) then
+      fs.makeDir(payload)
+    end
+    if payload and fs.exists(payload) and fs.isDir(payload) then
+      state.file_path = payload
+      state.file_selected = nil
+      state.file_scroll = 0
+      state.file_preview = nil
+    end
   elseif action == "file_new_folder" then
     create_file("folder")
   elseif action == "file_new_file" then
