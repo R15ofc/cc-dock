@@ -1727,6 +1727,12 @@ local function pixel_round(left, top, width, height, radius, color)
   end
 end
 
+local function pixel_top_round(left, top, width, height, radius, color)
+  if state.headless then
+    queue_frame_op({ kind = "pixel_top_round", left = left, top = top, width = width, height = height, radius = radius or 3, color = color or colors.black })
+  end
+end
+
 local function pixel_icon(left, top, width, height, icon_id, fallback, background, foreground)
   if state.headless then
     queue_frame_op({
@@ -2645,7 +2651,14 @@ function draw_luma_tabs(left, top, width)
     end
     local active = index == state.luma_active_tab
     local background = active and colors.lightGray or colors.gray
-    fill(tab_left, top, 9, 1, background)
+    if state.headless then
+      fill(tab_left, top, 9, 1, colors.gray)
+      local pixel_left = (tab_left - 1) * state.external.cell_width + 1
+      local pixel_top = (top - 1) * state.external.cell_height + 1
+      pixel_top_round(pixel_left, pixel_top, 9 * state.external.cell_width, state.external.cell_height, 5, background)
+    else
+      fill(tab_left, top, 9, 1, background)
+    end
     write_at(tab_left + 1, top, trim(tab.title or "Tab", 6), active and colors.black or colors.white, background)
     write_at(tab_left + 7, top, "x", active and colors.gray or colors.lightGray, background)
     add_hit("luma_tab_select", tab_left, top, 7, 1, index)
@@ -3233,6 +3246,20 @@ function tom_round_rect(gpu, left, top, width, height, radius, rgb)
   end
 end
 
+function tom_top_round_rect(gpu, left, top, width, height, radius, rgb)
+  radius = math.max(0, math.min(math.floor(radius or 0), math.floor(math.min(width, height) / 2)))
+  if radius <= 1 then
+    tom_fill_rgb(gpu, left, top, width, height, rgb)
+    return
+  end
+  tom_fill_rgb(gpu, left, top + radius, width, math.max(0, height - radius), rgb)
+  for offset = 0, radius - 1 do
+    local inset = math.floor((radius - offset) * 0.55)
+    local row_width = width - inset * 2
+    tom_fill_rgb(gpu, left + inset, top + offset, row_width, 1, rgb)
+  end
+end
+
 function tom_draw_text(gpu, left, top, text, foreground, background)
   if not gpu.drawText then
     return
@@ -3512,6 +3539,8 @@ function render_tom_gpu()
           tom_fill_rect(gpu, op.left, op.top, op.width, op.height, op.color)
         elseif op.kind == "pixel_round" then
           tom_round_rect(gpu, op.left, op.top, op.width, op.height, op.radius or 3, color_value(op.color or colors.black))
+        elseif op.kind == "pixel_top_round" then
+          tom_top_round_rect(gpu, op.left, op.top, op.width, op.height, op.radius or 3, color_value(op.color or colors.black))
         elseif op.kind == "tiny_text" then
           tom_tiny_text(gpu, op.left, op.top, op.text, op.color, op.scale)
         end
